@@ -158,7 +158,6 @@ fun SettingsContent(
             )
         }
     }
-}
 
 @Composable
 private fun SectionLabel(text: String, colors: EditorColors) {
