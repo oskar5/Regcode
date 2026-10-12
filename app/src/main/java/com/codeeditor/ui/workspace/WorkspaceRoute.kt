@@ -10,6 +10,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -100,7 +101,7 @@ private fun resolveDark(mode: ThemeMode): Boolean = when (mode) {
 
 private fun styleFrom(settings: EditorSettings): EditorStyle = EditorStyle(
     fontFamily = when (settings.fontFamilyId) {
-        "jetbrains" -> FontFamily(res = R.font.jetbrains_mono)
+        "jetbrains" -> FontFamily(Font(R.font.jetbrains_mono))
         "sans" -> FontFamily.SansSerif
         "serif" -> FontFamily.Serif
         else -> FontFamily.Monospace

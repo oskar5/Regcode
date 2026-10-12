@@ -1,8 +1,10 @@
 package com.codeeditor.ui.editor
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -45,6 +47,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
@@ -122,20 +125,24 @@ fun EditorSurface(
             .fillMaxSize()
             .background(colors.background)
             .pointerInput(Unit) {
-                detectTransformGestures(
-                    onGesture = { _, _, zoom, _ ->
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false)
+                    var pressed: Boolean
+                    do {
+                        val event = awaitPointerEvent()
+                        val zoom = event.calculateZoom()
                         if (kotlin.math.abs(zoom - 1f) > 0.005f) zoomScale *= zoom
-                    },
-                    onGestureEnd = {
-                        val target = (style.fontSizeSp * zoomScale).coerceIn(
-                            MIN_FONT_SIZE_SP, MAX_FONT_SIZE_SP
-                        )
-                        val rounded = kotlin.math.round(target * 10f) / 10f
-                        if (kotlin.math.abs(rounded - style.fontSizeSp) > 0.05f) {
-                            onFontSizeChange(rounded)
-                        }
+                        event.changes.forEach { if (it.positionChanged()) it.consume() }
+                        pressed = event.changes.any { it.pressed }
+                    } while (pressed)
+                    val target = (style.fontSizeSp * zoomScale).coerceIn(
+                        MIN_FONT_SIZE_SP, MAX_FONT_SIZE_SP
+                    )
+                    val rounded = kotlin.math.round(target * 10f) / 10f
+                    if (kotlin.math.abs(rounded - style.fontSizeSp) > 0.05f) {
+                        onFontSizeChange(rounded)
                     }
-                )
+                }
             }
     ) {
         LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
@@ -343,7 +350,7 @@ private fun handleHardwareKey(
         alt && event.key == Key.DirectionDown -> { onAction(EditorAction.MoveLineDown); true }
         ctrl && event.key == Key.F -> { onAction(EditorAction.OpenFind); true }
         ctrl && event.key == Key.H -> { onAction(EditorAction.OpenReplace); true }
-        ctrl && event.key == Key.Space -> { onAction(EditorAction.ShowCompletions); true }
+        ctrl && event.key == Key.Spacebar -> { onAction(EditorAction.ShowCompletions); true }
         shift && event.key == Key.F3 -> { onAction(EditorAction.FindPrevious); true }
         event.key == Key.F3 -> { onAction(EditorAction.FindNext); true }
         event.key == Key.Escape -> { onAction(EditorAction.CloseFind); true }

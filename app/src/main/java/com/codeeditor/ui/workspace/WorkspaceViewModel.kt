@@ -157,6 +157,7 @@ class WorkspaceViewModel @Inject constructor(
             MoveLineDown -> { dismissCompletion(); session.moveLineDown() }
             AddNextOccurrence -> { dismissCompletion(); session.addNextOccurrence() }
             SelectWord -> { dismissCompletion(); session.selectWordAtCaret() }
+            else -> Unit
         }
         scheduleAutosave(session)
         schedulePersist()

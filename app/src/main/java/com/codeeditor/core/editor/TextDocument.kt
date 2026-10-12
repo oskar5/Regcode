@@ -1,5 +1,7 @@
 package com.codeeditor.core.editor
 
+import com.codeeditor.core.editor.edit.TextEdit
+
 /**
  * Mutable in-memory text buffer with an incrementally maintained line index.
  *
