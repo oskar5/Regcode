@@ -25,7 +25,8 @@ import com.codeeditor.ui.theme.EditorColors
 fun KeyRow(
     colors: EditorColors,
     onKey: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    compact: Boolean = false
 ) {
     Row(
         modifier = modifier
@@ -38,12 +39,19 @@ fun KeyRow(
         SYMBOLS.forEach { symbol ->
             Text(
                 text = symbol,
-                style = MaterialTheme.typography.titleMedium,
+                style = if (compact) {
+                    MaterialTheme.typography.titleSmall
+                } else {
+                    MaterialTheme.typography.titleMedium
+                },
                 color = colors.foreground,
                 modifier = Modifier
                     .clip(MaterialTheme.shapes.small)
                     .clickable { onKey(symbol) }
-                    .padding(horizontal = 9.dp, vertical = 6.dp)
+                    .padding(
+                        horizontal = if (compact) 8.dp else 9.dp,
+                        vertical = if (compact) 3.dp else 6.dp
+                    )
             )
         }
     }

@@ -22,13 +22,13 @@ import com.codeeditor.ui.theme.EditorColors
 
 /** Bottom status strip: cursor position, line endings and active language. */
 @Composable
-fun EditorStatusBar(state: EditorUiState, colors: EditorColors) {
+fun EditorStatusBar(state: EditorUiState, colors: EditorColors, compact: Boolean = false) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(colors.gutterBackground)
             .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime))
-            .padding(horizontal = 12.dp, vertical = 4.dp),
+            .padding(horizontal = 12.dp, vertical = if (compact) 2.dp else 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(

@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Keyboard
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.NoteAdd
 import androidx.compose.material.icons.filled.Redo
 import androidx.compose.material.icons.filled.Save
@@ -40,6 +41,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -87,6 +89,7 @@ fun WorkspaceScreen(
     var showFiles by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
+    var sidePanelOpen by rememberSaveable { mutableStateOf(true) }
     val snackbarHostState = remember { SnackbarHostState() }
     val sheetState = rememberModalBottomSheetState()
 
@@ -96,99 +99,109 @@ fun WorkspaceScreen(
         onMessageShown()
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = state.activeTab?.title ?: stringResource(R.string.app_name),
-                        style = MaterialTheme.typography.titleMedium
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val windowWidth = maxWidth
+        val compactWidth = windowWidth < 600.dp
+        val expandedWidth = windowWidth >= 840.dp
+        val isLandscape = maxWidth > maxHeight
+        // The side panel never takes more than ~a third of the width and is
+        // narrower in the medium (phone-landscape) size class, so the editor
+        // always keeps the majority of the screen.
+        val panelWidth = (if (expandedWidth) 280.dp else 200.dp)
+            .coerceAtMost(windowWidth * 0.38f)
+
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    navigationIcon = {
+                        if (!compactWidth) {
+                            IconButton(onClick = { sidePanelOpen = !sidePanelOpen }) {
+                                Icon(
+                                    imageVector = Icons.Filled.Menu,
+                                    contentDescription = stringResource(R.string.menu_files)
+                                )
+                            }
+                        }
+                    },
+                    title = {
+                        Text(
+                            text = state.activeTab?.title ?: stringResource(R.string.app_name),
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                    },
+                    actions = {
+                        IconButton(onClick = { onAction(EditorAction.Undo) }, enabled = state.editor.canUndo) {
+                            Icon(Icons.Filled.Undo, contentDescription = stringResource(R.string.menu_undo))
+                        }
+                        IconButton(onClick = { onAction(EditorAction.Redo) }, enabled = state.editor.canRedo) {
+                            Icon(Icons.Filled.Redo, contentDescription = stringResource(R.string.menu_redo))
+                        }
+                        IconButton(onClick = { onAction(EditorAction.OpenFind) }) {
+                            Icon(Icons.Filled.Search, contentDescription = stringResource(R.string.find_hint))
+                        }
+                        IconButton(onClick = onSave, enabled = state.editor.isDirty) {
+                            Icon(Icons.Filled.Save, contentDescription = stringResource(R.string.menu_save))
+                        }
+                        Box {
+                            IconButton(onClick = { showMenu = true }) {
+                                Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.menu_more))
+                            }
+                            DropdownMenu(
+                                expanded = showMenu,
+                                onDismissRequest = { showMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.menu_new)) },
+                                    onClick = {
+                                        showMenu = false
+                                        onNewFile()
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.NoteAdd, null) }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.menu_open)) },
+                                    onClick = {
+                                        showMenu = false
+                                        onOpenFilePicker()
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.FolderOpen, null) }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.menu_key_row)) },
+                                    onClick = {
+                                        showMenu = false
+                                        onAction(EditorAction.ToggleKeyRow)
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Keyboard, null) }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.menu_settings)) },
+                                    onClick = {
+                                        showMenu = false
+                                        showSettings = true
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Settings, null) }
+                                )
+                            }
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = colors.gutterBackground,
+                        titleContentColor = colors.foreground,
+                        actionIconContentColor = colors.foreground
                     )
-                },
-                actions = {
-                    IconButton(onClick = { onAction(EditorAction.Undo) }, enabled = state.editor.canUndo) {
-                        Icon(Icons.Filled.Undo, contentDescription = stringResource(R.string.menu_undo))
-                    }
-                    IconButton(onClick = { onAction(EditorAction.Redo) }, enabled = state.editor.canRedo) {
-                        Icon(Icons.Filled.Redo, contentDescription = stringResource(R.string.menu_redo))
-                    }
-                    IconButton(onClick = { onAction(EditorAction.OpenFind) }) {
-                        Icon(Icons.Filled.Search, contentDescription = stringResource(R.string.find_hint))
-                    }
-                    IconButton(onClick = onSave, enabled = state.editor.isDirty) {
-                        Icon(Icons.Filled.Save, contentDescription = stringResource(R.string.menu_save))
-                    }
-                    Box {
-                        IconButton(onClick = { showMenu = true }) {
-                            Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.menu_more))
-                        }
-                        DropdownMenu(
-                            expanded = showMenu,
-                            onDismissRequest = { showMenu = false }
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.menu_new)) },
-                                onClick = {
-                                    showMenu = false
-                                    onNewFile()
-                                },
-                                leadingIcon = { Icon(Icons.Filled.NoteAdd, null) }
-                            )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.menu_open)) },
-                                onClick = {
-                                    showMenu = false
-                                    onOpenFilePicker()
-                                },
-                                leadingIcon = { Icon(Icons.Filled.FolderOpen, null) }
-                            )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.menu_key_row)) },
-                                onClick = {
-                                    showMenu = false
-                                    onAction(EditorAction.ToggleKeyRow)
-                                },
-                                leadingIcon = { Icon(Icons.Filled.Keyboard, null) }
-                            )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.menu_settings)) },
-                                onClick = {
-                                    showMenu = false
-                                    showSettings = true
-                                },
-                                leadingIcon = { Icon(Icons.Filled.Settings, null) }
-                            )
-                        }
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = colors.gutterBackground,
-                    titleContentColor = colors.foreground,
-                    actionIconContentColor = colors.foreground
                 )
-            )
-        },
-        bottomBar = { EditorStatusBar(state.editor, colors) },
-        snackbarHost = { SnackbarHost(snackbarHostState) }
-    ) { padding ->
-        BoxWithConstraints(
-            modifier = Modifier
+            },
+            bottomBar = { EditorStatusBar(state.editor, colors, compact = isLandscape) },
+            snackbarHost = { SnackbarHost(snackbarHostState) }
+        ) { padding ->
+            val contentModifier = Modifier
                 .padding(padding)
                 .fillMaxSize()
-        ) {
-            val expanded = maxWidth >= 720.dp
-            if (expanded) {
-                Row(Modifier.fillMaxSize()) {
-                    FileTreePanel(
-                        state = state,
-                        onOpenFolderPicker = onOpenFolderPicker,
-                        onOpenFile = onOpenFile,
-                        onTreeRowClick = onTreeRowClick,
-                        modifier = Modifier
-                            .width(280.dp)
-                            .fillMaxHeight()
-                    )
-                    VerticalDivider(color = colors.currentLineBackground)
+            if (compactWidth) {
+                // Phone portrait / narrow window: the editor fills the screen and
+                // the file tree is reached via the floating trigger + bottom sheet.
+                Box(contentModifier) {
                     EditorPane(
                         state = state,
                         style = style,
@@ -202,34 +215,49 @@ fun WorkspaceScreen(
                         onSelectTab = onSelectTab,
                         onCloseTab = onCloseTab,
                         onNewFile = onNewFile,
+                        compactHeight = isLandscape,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                    FileTreeTrigger(
+                        onClick = { showFiles = true },
+                        modifier = Modifier.align(Alignment.BottomEnd)
+                    )
+                }
+            } else {
+                // Wide windows (tablets, phones in landscape): a collapsible side
+                // panel beside an editor that always keeps the remaining width.
+                Row(contentModifier) {
+                    if (sidePanelOpen) {
+                        FileTreePanel(
+                            state = state,
+                            onOpenFolderPicker = onOpenFolderPicker,
+                            onOpenFile = onOpenFile,
+                            onTreeRowClick = onTreeRowClick,
+                            modifier = Modifier
+                                .width(panelWidth)
+                                .fillMaxHeight()
+                        )
+                        VerticalDivider(color = colors.currentLineBackground)
+                    }
+                    EditorPane(
+                        state = state,
+                        style = style,
+                        lineText = lineText,
+                        tokensForLine = tokensForLine,
+                        colors = colors,
+                        onAction = onAction,
+                        findCallbacks = findCallbacks,
+                        onCompletionSelect = onCompletionSelect,
+                        onFontSizeChange = onFontSizeChange,
+                        onSelectTab = onSelectTab,
+                        onCloseTab = onCloseTab,
+                        onNewFile = onNewFile,
+                        compactHeight = isLandscape,
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxHeight()
                     )
                 }
-            } else {
-                Box(Modifier.fillMaxSize()) {
-                    EditorPane(
-                        state = state,
-                        style = style,
-                        lineText = lineText,
-                        tokensForLine = tokensForLine,
-                        colors = colors,
-                        onAction = onAction,
-                        findCallbacks = findCallbacks,
-                        onCompletionSelect = onCompletionSelect,
-                        onFontSizeChange = onFontSizeChange,
-                        onSelectTab = onSelectTab,
-                        onCloseTab = onCloseTab,
-                        onNewFile = onNewFile,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
-                // Compact: expose the file tree through a persistent trigger in the tab bar.
-                FileTreeTrigger(
-                    onClick = { showFiles = true },
-                    modifier = Modifier.align(Alignment.BottomEnd)
-                )
             }
         }
     }
@@ -282,6 +310,7 @@ private fun EditorPane(
     onSelectTab: (String) -> Unit,
     onCloseTab: (String) -> Unit,
     onNewFile: () -> Unit,
+    compactHeight: Boolean,
     modifier: Modifier
 ) {
     Column(modifier.background(colors.background)) {
@@ -291,7 +320,8 @@ private fun EditorPane(
             colors = colors,
             onSelect = onSelectTab,
             onClose = onCloseTab,
-            onNewFile = onNewFile
+            onNewFile = onNewFile,
+            compact = compactHeight
         )
         FindBar(
             state = state.find,
@@ -325,7 +355,8 @@ private fun EditorPane(
         if (state.settings.showKeyRow) {
             KeyRow(
                 colors = colors,
-                onKey = { onAction(EditorAction.InsertText(it)) }
+                onKey = { onAction(EditorAction.InsertText(it)) },
+                compact = compactHeight
             )
         }
     }

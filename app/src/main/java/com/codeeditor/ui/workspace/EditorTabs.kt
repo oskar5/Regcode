@@ -39,13 +39,15 @@ fun EditorTabs(
     colors: EditorColors,
     onSelect: (String) -> Unit,
     onClose: (String) -> Unit,
-    onNewFile: () -> Unit
+    onNewFile: () -> Unit,
+    compact: Boolean = false
 ) {
     val scroll = rememberScrollState()
+    val barHeight = if (compact) 32.dp else 40.dp
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(40.dp)
+            .height(barHeight)
             .background(colors.gutterBackground)
             .horizontalScroll(scroll),
         verticalAlignment = Alignment.CenterVertically
@@ -59,7 +61,7 @@ fun EditorTabs(
                 onClose = { onClose(tab.id) }
             )
         }
-        IconButton(onClick = onNewFile, modifier = Modifier.size(40.dp)) {
+        IconButton(onClick = onNewFile, modifier = Modifier.size(barHeight)) {
             Icon(
                 imageVector = Icons.Filled.Add,
                 contentDescription = "New file",
