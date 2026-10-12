@@ -155,7 +155,7 @@ fun EditorSurface(
         // The whole code column is fixed to the widest line and wrapped in one
         // shared horizontal scroller, so horizontal scrolling is not tied to which
         // row is currently composed (the cause of the previous no-op scrolling).
-        val viewportWidth = if (maxWidth.isFinite) maxWidth else 0.dp
+        val viewportWidth = if (maxWidth.value.isFinite()) maxWidth else 0.dp
         val listWidth = maxOf(gutterWidth + codeWidth, viewportWidth)
         Row(
             modifier = Modifier
