@@ -10,6 +10,7 @@ data class EditorUiState(
     val languageId: String = "plaintext",
     val contentVersion: Int = 0,
     val lineCount: Int = 1,
+    val maxLineLength: Int = 0,
     val cursor: TextPosition = TextPosition.Zero,
     val selection: Selection = Selection.Zero,
     val selections: List<Selection> = emptyList(),

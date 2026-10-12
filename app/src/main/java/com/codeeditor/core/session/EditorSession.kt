@@ -43,6 +43,9 @@ class EditorSession(
     private var wordIndexCache: WordIndex? = null
     private var wordIndexVersion: Int = -1
 
+    private var maxLineLengthVersion: Int = -1
+    private var cachedMaxLineLength: Int = 0
+
     var title: String = title
     var dirty: Boolean = false
         private set
@@ -70,6 +73,31 @@ class EditorSession(
     fun lineText(line: Int): String = document.lineAt(line)
     fun lineLength(line: Int): Int = document.lineEndOffset(line) - document.lineStartOffset(line)
     fun lineCount(): Int = document.lineCount
+
+    /**
+     * Length of the longest line, cached per document version. Drives the shared
+     * horizontal scroll width so every row reports the same scroll range.
+     */
+    fun maxLineLength(): Int {
+        if (maxLineLengthVersion == document.version) return cachedMaxLineLength
+        val text = document.snapshot()
+        var max = 0
+        var current = 0
+        for (i in text.indices) {
+            when (text[i]) {
+                '\n' -> {
+                    if (current > max) max = current
+                    current = 0
+                }
+                '\r' -> Unit
+                else -> current++
+            }
+        }
+        if (current > max) max = current
+        cachedMaxLineLength = max
+        maxLineLengthVersion = document.version
+        return max
+    }
 
     fun tokensForLine(line: Int): List<SyntaxToken> =
         highlighter.highlight(document.lineAt(line), stateAt(line)).tokens

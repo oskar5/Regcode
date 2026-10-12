@@ -8,6 +8,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -101,6 +102,11 @@ fun EditorSurface(
     val gutterDigits = maxOf(3, state.lineCount.toString().length)
     val gutterWidth = with(density) { (gutterDigits * charWidth + 20.dp.toPx()).toDp() }
     val lineHeightDp = with(density) { lineHeight.toDp() }
+    // Shared scroll range: every row is padded to the same content width so the
+    // single hScroll state is not clamped to the overflow of the shortest row.
+    val contentWidth = with(density) {
+        (state.maxLineLength * charWidth + textPadding + 10.dp.toPx()).toDp()
+    }
 
     val listState = rememberLazyListState()
     val hScroll = rememberScrollState()
@@ -157,6 +163,7 @@ fun EditorSurface(
                     lineHeightDp = lineHeightDp,
                     gutterWidth = gutterWidth,
                     textPadding = textPadding,
+                    contentWidth = contentWidth,
                     hScroll = hScroll,
                     colors = colors,
                     lineText = lineText,
@@ -207,6 +214,7 @@ private fun EditorLineRow(
     lineHeightDp: Dp,
     gutterWidth: Dp,
     textPadding: Float,
+    contentWidth: Dp,
     hScroll: ScrollState,
     colors: EditorColors,
     lineText: (Int) -> String,
@@ -262,6 +270,7 @@ private fun EditorLineRow(
                     )
                 }
         ) {
+            Spacer(Modifier.width(contentWidth).height(lineHeightDp))
             selectionSpans.forEach { span ->
                 Box(
                     modifier = Modifier

@@ -730,6 +730,7 @@ class WorkspaceViewModel @Inject constructor(
                 languageId = it.language.id,
                 contentVersion = it.document.version,
                 lineCount = it.lineCount(),
+                maxLineLength = it.maxLineLength(),
                 cursor = it.caret,
                 selection = it.selection,
                 selections = it.allSelections,
