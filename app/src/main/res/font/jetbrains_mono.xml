@@ -5,7 +5,7 @@
         android:fontWeight="400"
         android:font="@font/jetbrains_mono_regular" />
     <font
-        android:fontStyle="bold"
+        android:fontStyle="normal"
         android:fontWeight="700"
         android:font="@font/jetbrains_mono_bold" />
 </font-family>
