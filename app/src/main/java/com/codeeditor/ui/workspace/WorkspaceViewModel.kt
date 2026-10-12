@@ -8,6 +8,7 @@ import com.codeeditor.core.autocomplete.CompletionEngine
 import com.codeeditor.core.autocomplete.CompletionProvider
 import com.codeeditor.core.editor.highlight.LanguageRegistry
 import com.codeeditor.core.editor.highlight.SyntaxToken
+import com.codeeditor.core.encoding.TextEncoding
 import com.codeeditor.core.search.SearchMatch
 import com.codeeditor.core.search.SearchOptions
 import com.codeeditor.core.session.EditorSession
@@ -89,6 +90,7 @@ class WorkspaceViewModel @Inject constructor(
 
     private var persistJob: Job? = null
     private var autosaveJob: Job? = null
+    private var lastPersisted: List<SessionDocument>? = null
 
     init {
         viewModelScope.launch {
@@ -497,6 +499,14 @@ class WorkspaceViewModel @Inject constructor(
                     session.indentUnit = indentUnit()
                     sessions.add(session)
                     activeId = session.id
+                    if (loaded.encodingGuessed) {
+                        _state.update {
+                            it.copy(
+                                message = "Кодування визначено приблизно: ${loaded.encoding.displayName}. " +
+                                    "Якщо текст відображається неправильно, змініть кодування вручну."
+                            )
+                        }
+                    }
                     sessions.forEachIndexed { i, s ->
                         if (s.uri != null) sessionRepository.upsert(s.toDocument(i))
                     }
@@ -584,17 +594,31 @@ class WorkspaceViewModel @Inject constructor(
             return
         }
         restored.forEach { doc ->
+            // Clean buffers are not stored in the database; reload them from disk
+            // (this also recovers their original encoding). Skip tabs whose file
+            // has since disappeared.
+            val loaded = if (doc.content.isEmpty() && doc.uri.isNotEmpty()) {
+                runCatching { fileRepository.readDocument(doc.uri) }.getOrNull() ?: return@forEach
+            } else {
+                null
+            }
             val session = EditorSession(
                 id = doc.uri,
                 uri = doc.uri,
                 title = doc.title,
-                initialText = doc.content,
-                language = LanguageRegistry.byId(doc.languageId)
+                initialText = loaded?.text ?: doc.content,
+                language = LanguageRegistry.byId(doc.languageId),
+                encoding = loaded?.encoding ?: TextEncoding.UTF_8,
+                hasBom = loaded?.hasBom ?: false
             )
             session.indentUnit = indentUnit()
             session.setCaret(doc.cursorLine, doc.cursorColumn)
             if (doc.isDirty) session.markDirty()
             sessions.add(session)
+        }
+        if (sessions.isEmpty()) {
+            openSample()
+            return
         }
         activeId = settings.lastActiveUri?.takeIf { uri -> sessions.any { it.uri == uri } }
             ?: sessions.first().id
@@ -660,7 +684,9 @@ class WorkspaceViewModel @Inject constructor(
         val documents = sessions.mapIndexedNotNull { index, session ->
             if (session.uri == null) null else session.toDocument(index)
         }
+        if (documents == lastPersisted) return
         sessionRepository.saveSession(documents)
+        lastPersisted = documents
     }
 
     private fun persistActiveUri() {
@@ -686,7 +712,10 @@ class WorkspaceViewModel @Inject constructor(
         uri = requireNotNull(uri),
         title = title,
         languageId = language.id,
-        content = content,
+        // Clean, file-backed buffers are reloaded from disk on restore, so only
+        // dirty buffers need their content persisted. This keeps large files out
+        // of the session database.
+        content = if (dirty) content else "",
         cursorLine = caret.line,
         cursorColumn = caret.column,
         isDirty = dirty,

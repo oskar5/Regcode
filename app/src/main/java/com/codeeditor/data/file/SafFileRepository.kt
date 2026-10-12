@@ -35,7 +35,8 @@ class SafFileRepository @Inject constructor(
             text = decoded.text,
             encoding = decoded.encoding,
             hasBom = decoded.hasBom,
-            lineEnding = decoded.lineEnding
+            lineEnding = decoded.lineEnding,
+            encodingGuessed = decoded.usedFallback
         )
     }
 

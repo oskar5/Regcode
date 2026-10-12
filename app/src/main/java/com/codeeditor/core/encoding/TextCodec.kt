@@ -10,32 +10,58 @@ data class DecodedText(
     val text: String,
     val encoding: TextEncoding,
     val hasBom: Boolean,
-    val lineEnding: LineEnding
+    val lineEnding: LineEnding,
+    /**
+     * True when [encoding] was guessed rather than declared (no BOM and not
+     * valid UTF-8). Callers should surface this so the user can correct it.
+     */
+    val usedFallback: Boolean = false
 )
 
 /**
  * Decodes and encodes file contents.
  *
- * Detection order: byte-order mark, then strict UTF-8 validation, otherwise a
- * Windows-1251 (Cyrillic) fallback which is the most common legacy encoding for
- * this audience.
+ * Detection order: byte-order mark, then a NUL-pattern heuristic for UTF-16
+ * without a BOM, then strict UTF-8 validation, otherwise a Windows-1251
+ * (Cyrillic) fallback which is the most common legacy encoding for this
+ * audience. Guesses are reported through [DecodedText.usedFallback].
  */
 object TextCodec {
 
     fun decode(bytes: ByteArray): DecodedText {
         val bom = detectBom(bytes)
-        val bodyStart = bom.bomLength
-        val body = if (bodyStart > 0) bytes.copyOfRange(bodyStart, bytes.size) else bytes
-
-        val decoded: Pair<String, TextEncoding> = when {
-            bom.encoding != null -> decodeStrict(body, bom.encoding) to bom.encoding
-            else -> decodeAuto(body)
+        if (bom.encoding != null) {
+            val body = bytes.copyOfRange(bom.bomLength, bytes.size)
+            val text = decodeStrict(body, bom.encoding)
+            return DecodedText(
+                text = text,
+                encoding = bom.encoding,
+                hasBom = true,
+                lineEnding = LineEnding.detect(text)
+            )
         }
+
+        val utf16 = guessUtf16(bytes)
+        if (utf16 != null) {
+            val text = runCatching { decodeStrict(bytes, utf16) }.getOrNull()
+            if (text != null) {
+                return DecodedText(
+                    text = text,
+                    encoding = utf16,
+                    hasBom = false,
+                    lineEnding = LineEnding.detect(text),
+                    usedFallback = true
+                )
+            }
+        }
+
+        val (text, encoding) = decodeAuto(bytes)
         return DecodedText(
-            text = decoded.first,
-            encoding = decoded.second,
-            hasBom = bom.encoding != null,
-            lineEnding = detectLineEnding(decoded.first)
+            text = text,
+            encoding = encoding,
+            hasBom = false,
+            lineEnding = LineEnding.detect(text),
+            usedFallback = encoding != TextEncoding.UTF_8
         )
     }
 
@@ -70,9 +96,27 @@ object TextCodec {
         return decoder.decode(ByteBuffer.wrap(bytes)).toString()
     }
 
-    private fun detectLineEnding(text: String): LineEnding {
-        val idx = text.indexOf('\n')
-        return if (idx > 0 && text[idx - 1] == '\r') LineEnding.CRLF else LineEnding.LF
+    /**
+     * Guesses UTF-16LE/BE for BOM-less files by looking for NUL bytes that
+     * consistently fall on one byte parity, which is what ASCII-heavy UTF-16
+     * text looks like. Returns null when the pattern is not convincing.
+     */
+    private fun guessUtf16(bytes: ByteArray): TextEncoding? {
+        if (bytes.size < 4) return null
+        val sample = minOf(bytes.size, 1024)
+        var evenNul = 0
+        var oddNul = 0
+        for (i in 0 until sample) {
+            if (bytes[i] == 0.toByte()) {
+                if (i % 2 == 0) evenNul++ else oddNul++
+            }
+        }
+        val threshold = maxOf(2, sample / 8)
+        return when {
+            oddNul >= threshold && oddNul >= evenNul * 8 -> TextEncoding.UTF_16LE
+            evenNul >= threshold && evenNul >= oddNul * 8 -> TextEncoding.UTF_16BE
+            else -> null
+        }
     }
 
     private fun normalizeLineEndings(text: String, lineEnding: LineEnding): String {

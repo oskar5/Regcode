@@ -17,7 +17,9 @@ data class LoadedDocument(
     val text: String,
     val encoding: TextEncoding,
     val hasBom: Boolean,
-    val lineEnding: LineEnding
+    val lineEnding: LineEnding,
+    /** True when [encoding] was guessed, so the user may want to change it. */
+    val encodingGuessed: Boolean = false
 )
 
 /** An entry in the "recent files" list. */

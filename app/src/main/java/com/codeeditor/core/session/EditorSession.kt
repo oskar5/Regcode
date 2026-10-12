@@ -49,6 +49,10 @@ class EditorSession(
     var indentUnit: String = "    "
     var autoCloseBrackets: Boolean = true
 
+    /** Document version at the point the file was last saved, used to derive [dirty]. */
+    var savedVersion: Int = document.version
+        private set
+
     /** Whether the next recorded simple edit may merge into the previous one. */
     private var coalesceNext: Boolean = false
 
@@ -81,7 +85,7 @@ class EditorSession(
 
     fun markSaved() {
         dirty = false
-        undoRedo.clear()
+        savedVersion = document.version
         coalesceNext = false
     }
 
@@ -548,19 +552,19 @@ class EditorSession(
     fun undo() {
         val edit = undoRedo.undo() ?: return
         val caret = applyInverse(edit)
-        dirty = true
         coalesceNext = false
         collapseTo(caret)
         invalidateFrom(caret.line)
+        dirty = document.version != savedVersion
     }
 
     fun redo() {
         val edit = undoRedo.redo() ?: return
         val caret = apply(edit)
-        dirty = true
         coalesceNext = false
         collapseTo(caret)
         invalidateFrom(caret.line)
+        dirty = document.version != savedVersion
     }
 
     private fun apply(edit: TextEdit): TextPosition = when (edit) {

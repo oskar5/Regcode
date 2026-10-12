@@ -72,12 +72,17 @@ class EditorSessionTest {
     }
 
     @Test
-    fun `markSaved clears dirty and history`() {
-        val s = session()
-        s.insertText("x")
+    fun `markSaved clears dirty but keeps undo history`() {
+        val s = session("hello")
+        s.setCaret(0, 5)
+        s.insertText(" world")
         s.markSaved()
         assertFalse(s.dirty)
-        assertFalse(s.canUndo)
+        assertTrue(s.canUndo)
+        s.undo()
+        assertEquals("hello", s.content)
+        s.redo()
+        assertEquals("hello world", s.content)
     }
 
     @Test
