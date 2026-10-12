@@ -15,14 +15,22 @@ import kotlinx.coroutines.withContext
 
 class RoomSessionRepository @Inject constructor(
     private val dao: SessionDao,
+    private val buffers: SessionBufferStore,
     @IoDispatcher private val io: CoroutineDispatcher
 ) : SessionRepository {
 
     override suspend fun loadSession(): List<SessionDocument> = withContext(io) {
-        dao.loadSession().map { it.toDomain() }
+        dao.loadSession().map { entity ->
+            val content = if (entity.hasBufferedContent) buffers.read(entity.uri) else ""
+            entity.toDomain(content)
+        }
     }
 
     override suspend fun saveSession(documents: List<SessionDocument>) = withContext(io) {
+        val buffered = documents
+            .filter { it.content.isNotEmpty() }
+            .associate { it.uri to it.content }
+        buffers.replaceAll(buffered)
         dao.clearSession()
         documents.forEachIndexed { index, doc ->
             dao.insertDocument(doc.copy(orderIndex = index).toEntity())
@@ -30,11 +38,17 @@ class RoomSessionRepository @Inject constructor(
     }
 
     override suspend fun upsert(document: SessionDocument) = withContext(io) {
+        if (document.content.isNotEmpty()) {
+            buffers.write(document.uri, document.content)
+        } else {
+            buffers.delete(document.uri)
+        }
         dao.upsertDocument(document.toEntity())
     }
 
     override suspend fun remove(uri: String) = withContext(io) {
         dao.deleteDocument(uri)
+        buffers.delete(uri)
     }
 
     override suspend fun addRecent(uri: String, title: String) = withContext(io) {
@@ -44,7 +58,7 @@ class RoomSessionRepository @Inject constructor(
     override fun observeRecent(limit: Int): Flow<List<RecentFile>> =
         dao.observeRecent(limit).map { list -> list.map { it.toDomain() } }
 
-    private fun SessionDocumentEntity.toDomain() = SessionDocument(
+    private fun SessionDocumentEntity.toDomain(content: String) = SessionDocument(
         uri = uri,
         title = title,
         languageId = languageId,
@@ -59,7 +73,7 @@ class RoomSessionRepository @Inject constructor(
         uri = uri,
         title = title,
         languageId = languageId,
-        content = content,
+        hasBufferedContent = content.isNotEmpty(),
         cursorLine = cursorLine,
         cursorColumn = cursorColumn,
         isDirty = isDirty,

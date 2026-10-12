@@ -16,7 +16,8 @@ data class SessionDocumentEntity(
     @PrimaryKey val uri: String,
     val title: String,
     val languageId: String,
-    val content: String,
+    /** True when the dirty buffer text lives in [com.codeeditor.data.session.SessionBufferStore]. */
+    val hasBufferedContent: Boolean,
     val cursorLine: Int,
     val cursorColumn: Int,
     val isDirty: Boolean,
@@ -60,7 +61,7 @@ interface SessionDao {
 
 @Database(
     entities = [SessionDocumentEntity::class, RecentFileEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class SessionDatabase : RoomDatabase() {

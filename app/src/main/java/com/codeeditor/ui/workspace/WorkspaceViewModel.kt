@@ -14,6 +14,7 @@ import com.codeeditor.core.search.SearchOptions
 import com.codeeditor.core.session.EditorSession
 import com.codeeditor.domain.model.EditorSettings
 import com.codeeditor.domain.model.FileNode
+import com.codeeditor.domain.model.FileTooLargeException
 import com.codeeditor.domain.model.SessionDocument
 import com.codeeditor.domain.model.ThemeMode
 import com.codeeditor.domain.repository.FileRepository
@@ -512,7 +513,12 @@ class WorkspaceViewModel @Inject constructor(
                     }
                 }
                 .onFailure { error ->
-                    _state.update { it.copy(message = "Не вдалося відкрити файл: ${error.message}") }
+                    val text = if (error is FileTooLargeException) {
+                        "Файл завеликий: ${error.limitBytes / (1024 * 1024)} МБ — це максимум."
+                    } else {
+                        "Не вдалося відкрити файл: ${error.message}"
+                    }
+                    _state.update { it.copy(message = text) }
                 }
             _state.update { it.copy(isLoading = false) }
             dismissCompletion()

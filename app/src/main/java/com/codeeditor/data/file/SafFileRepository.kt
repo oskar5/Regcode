@@ -9,9 +9,11 @@ import com.codeeditor.core.encoding.TextCodec
 import com.codeeditor.core.encoding.TextEncoding
 import com.codeeditor.di.IoDispatcher
 import com.codeeditor.domain.model.FileNode
+import com.codeeditor.domain.model.FileTooLargeException
 import com.codeeditor.domain.model.LoadedDocument
 import com.codeeditor.domain.repository.FileRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.net.URLDecoder
 import javax.inject.Inject
@@ -26,9 +28,11 @@ class SafFileRepository @Inject constructor(
 
     override suspend fun readDocument(uri: String): LoadedDocument = withContext(io) {
         val u = Uri.parse(uri)
-        val bytes = context.contentResolver.openInputStream(u)
-            ?.use { it.readBytes() }
-            ?: error("Cannot open $uri")
+        val size = runCatching {
+            context.contentResolver.openFileDescriptor(u, "r")?.use { it.statSize }
+        }.getOrNull() ?: -1L
+        if (size > MAX_DOCUMENT_BYTES) throw FileTooLargeException(MAX_DOCUMENT_BYTES)
+        val bytes = readBytesLimited(u, MAX_DOCUMENT_BYTES)
         val decoded = TextCodec.decode(bytes)
         LoadedDocument(
             name = displayName(uri),
@@ -38,6 +42,24 @@ class SafFileRepository @Inject constructor(
             lineEnding = decoded.lineEnding,
             encodingGuessed = decoded.usedFallback
         )
+    }
+
+    /** Reads a stream but aborts with [FileTooLargeException] past [limit] bytes. */
+    private fun readBytesLimited(uri: Uri, limit: Long): ByteArray {
+        val input = context.contentResolver.openInputStream(uri) ?: error("Cannot open $uri")
+        input.use { stream ->
+            val out = ByteArrayOutputStream()
+            val buffer = ByteArray(64 * 1024)
+            var total = 0L
+            while (true) {
+                val read = stream.read(buffer)
+                if (read < 0) break
+                total += read
+                if (total > limit) throw FileTooLargeException(limit)
+                out.write(buffer, 0, read)
+            }
+            return out.toByteArray()
+        }
     }
 
     override suspend fun writeDocument(
@@ -87,5 +109,10 @@ class SafFileRepository @Inject constructor(
         val tail = uri.substringAfterLast('/')
         return runCatching { URLDecoder.decode(tail, "UTF-8") }.getOrDefault(tail)
             .ifBlank { File(uri).name.ifBlank { "file" } }
+    }
+
+    private companion object {
+        /** Refuse to open files larger than this to protect device memory. */
+        const val MAX_DOCUMENT_BYTES = 8L * 1024 * 1024
     }
 }
