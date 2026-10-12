@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Редактор коду</string>
+    <string name="untitled">Без назви</string>
+    <string name="menu_undo">Скасувати</string>
+    <string name="menu_redo">Повторити</string>
+    <string name="menu_save">Зберегти</string>
+    <string name="menu_open">Відкрити файл</string>
+    <string name="line_col">Ряд %1$d, Стовп %2$d</string>
+    <string name="find_hint">Знайти</string>
+    <string name="find_replace_hint">Замінити на</string>
+    <string name="find_previous">Попередній збіг</string>
+    <string name="find_next">Наступний збіг</string>
+    <string name="find_close">Закрити</string>
+    <string name="find_case">Врахувати регістр</string>
+    <string name="find_word">Ціле слово</string>
+    <string name="find_regex">Регулярний вираз</string>
+    <string name="find_replace">Замінити</string>
+    <string name="find_replace_all">Замінити все</string>
+    <string name="find_counter">%1$d/%2$d</string>
+    <string name="menu_settings">Налаштування</string>
+    <string name="menu_more">Більше</string>
+    <string name="menu_new">Новий файл</string>
+    <string name="menu_key_row">Рядок клавіш</string>
+    <string name="settings_title">Налаштування редактора</string>
+    <string name="settings_theme">Тема</string>
+    <string name="settings_theme_system">Системна</string>
+    <string name="settings_theme_light">Світла</string>
+    <string name="settings_theme_dark">Темна</string>
+    <string name="settings_scheme">Схема кольорів</string>
+    <string name="settings_font">Шрифт</string>
+    <string name="settings_font_jetbrains">JetBrains Mono</string>
+    <string name="settings_font_mono">Моноширинний</string>
+    <string name="settings_font_sans">Без засічок</string>
+    <string name="settings_font_serif">Із засічками</string>
+    <string name="settings_font_size">Розмір шрифту</string>
+    <string name="settings_line_numbers">Показувати номери рядків</string>
+    <string name="settings_word_wrap">Перенесення рядків</string>
+</resources>
