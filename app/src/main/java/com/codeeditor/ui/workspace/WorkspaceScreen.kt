@@ -101,13 +101,15 @@ fun WorkspaceScreen(
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val windowWidth = maxWidth
-        val compactWidth = windowWidth < 600.dp
-        val expandedWidth = windowWidth >= 840.dp
         val isLandscape = maxWidth > maxHeight
+        // Portrait keeps the original no-inline-panel threshold (720dp) so the
+        // phone design is untouched; landscape follows the Material 600dp
+        // compact breakpoint so more windows get an adaptive side panel.
+        val compactWidth = if (isLandscape) windowWidth < 600.dp else windowWidth < 720.dp
         // The side panel never takes more than ~a third of the width and is
-        // narrower in the medium (phone-landscape) size class, so the editor
-        // always keeps the majority of the screen.
-        val panelWidth = (if (expandedWidth) 280.dp else 200.dp)
+        // narrower on medium windows (phones / small tablets in landscape) so
+        // the editor always keeps the majority of the screen.
+        val panelWidth = (if (isLandscape && windowWidth < 840.dp) 200.dp else 280.dp)
             .coerceAtMost(windowWidth * 0.38f)
 
         Scaffold(
