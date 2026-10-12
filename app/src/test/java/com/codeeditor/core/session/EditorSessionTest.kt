@@ -86,6 +86,21 @@ class EditorSessionTest {
     }
 
     @Test
+    fun `max line length tracks the longest line and ignores terminators`() {
+        val s = session("ab\nabcdef\nxy")
+        assertEquals(6, s.maxLineLength())
+        s.setCaret(2, 2)
+        s.insertText("ghijklm")
+        assertEquals(9, s.maxLineLength())
+    }
+
+    @Test
+    fun `max line length ignores carriage returns`() {
+        val s = session("ab\r\ncdef\r\n")
+        assertEquals(4, s.maxLineLength())
+    }
+
+    @Test
     fun `tokens are produced for the correct language`() {
         val s = session("val x = 1")
         assertTrue(s.tokensForLine(0).isNotEmpty())

@@ -7,6 +7,7 @@ import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -102,9 +103,10 @@ fun EditorSurface(
     val gutterDigits = maxOf(3, state.lineCount.toString().length)
     val gutterWidth = with(density) { (gutterDigits * charWidth + 20.dp.toPx()).toDp() }
     val lineHeightDp = with(density) { lineHeight.toDp() }
-    // Shared scroll range: every row is padded to the same content width so the
-    // single hScroll state is not clamped to the overflow of the shortest row.
-    val contentWidth = with(density) {
+    // Width of the widest line (plus padding). The whole code column is given this
+    // fixed width and lives inside a single horizontal scroller, so horizontal
+    // scrolling works regardless of which line happens to be on screen.
+    val codeWidth = with(density) {
         (state.maxLineLength * charWidth + textPadding + 10.dp.toPx()).toDp()
     }
 
@@ -126,7 +128,7 @@ fun EditorSurface(
         }
     }
 
-    Box(
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
             .background(colors.background)
@@ -138,7 +140,6 @@ fun EditorSurface(
                         val event = awaitPointerEvent()
                         val zoom = event.calculateZoom()
                         if (kotlin.math.abs(zoom - 1f) > 0.005f) zoomScale *= zoom
-                        event.changes.forEach { if (it.positionChanged()) it.consume() }
                         pressed = event.changes.any { it.pressed }
                     } while (pressed)
                     val target = (style.fontSizeSp * zoomScale).coerceIn(
@@ -151,35 +152,50 @@ fun EditorSurface(
                 }
             }
     ) {
-        LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
-            items(count = state.lineCount, key = { it }) { index ->
-                EditorLineRow(
-                    index = index,
-                    state = state,
-                    style = style,
-                    monoStyle = monoStyle,
-                    charWidth = charWidth,
-                    lineHeight = lineHeight,
-                    lineHeightDp = lineHeightDp,
-                    gutterWidth = gutterWidth,
-                    textPadding = textPadding,
-                    contentWidth = contentWidth,
-                    hScroll = hScroll,
-                    colors = colors,
-                    lineText = lineText,
-                    tokensForLine = tokensForLine,
-                    onTapLine = { line, x ->
-                        focusRequester.requestFocus()
-                        val col = ((x - textPadding) / charWidth).roundToInt().coerceAtLeast(0)
-                        onAction(EditorAction.MoveTo(line, col))
-                    },
-                    onDoubleTapLine = { line, x ->
-                        focusRequester.requestFocus()
-                        val col = ((x - textPadding) / charWidth).roundToInt().coerceAtLeast(0)
-                        onAction(EditorAction.MoveTo(line, col))
-                        onAction(EditorAction.SelectWord)
-                    }
-                )
+        // The whole code column is fixed to the widest line and wrapped in one
+        // shared horizontal scroller, so horizontal scrolling is not tied to which
+        // row is currently composed (the cause of the previous no-op scrolling).
+        val viewportWidth = if (maxWidth.isFinite) maxWidth else 0.dp
+        val listWidth = maxOf(gutterWidth + codeWidth, viewportWidth)
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .horizontalScroll(hScroll)
+        ) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .width(listWidth)
+                    .fillMaxHeight()
+            ) {
+                items(count = state.lineCount, key = { it }) { index ->
+                    EditorLineRow(
+                        index = index,
+                        state = state,
+                        style = style,
+                        monoStyle = monoStyle,
+                        charWidth = charWidth,
+                        lineHeight = lineHeight,
+                        lineHeightDp = lineHeightDp,
+                        gutterWidth = gutterWidth,
+                        textPadding = textPadding,
+                        hScroll = hScroll,
+                        colors = colors,
+                        lineText = lineText,
+                        tokensForLine = tokensForLine,
+                        onTapLine = { line, x ->
+                            focusRequester.requestFocus()
+                            val col = ((x - textPadding) / charWidth).roundToInt().coerceAtLeast(0)
+                            onAction(EditorAction.MoveTo(line, col))
+                        },
+                        onDoubleTapLine = { line, x ->
+                            focusRequester.requestFocus()
+                            val col = ((x - textPadding) / charWidth).roundToInt().coerceAtLeast(0)
+                            onAction(EditorAction.MoveTo(line, col))
+                            onAction(EditorAction.SelectWord)
+                        }
+                    )
+                }
             }
         }
 
@@ -214,7 +230,6 @@ private fun EditorLineRow(
     lineHeightDp: Dp,
     gutterWidth: Dp,
     textPadding: Float,
-    contentWidth: Dp,
     hScroll: ScrollState,
     colors: EditorColors,
     lineText: (Int) -> String,
@@ -237,66 +252,74 @@ private fun EditorLineRow(
         .filter { it.isCollapsed && it.caret.line == index }
         .map { it.caret.column }
     val density = LocalDensity.current
+    val rowBackground = if (isCurrent) colors.currentLineBackground else Color.Transparent
+    val gutterBackground = if (isCurrent) colors.currentLineBackground else colors.background
 
-    Row(
+    Box(
         modifier = Modifier
             .fillMaxWidth()
             .height(lineHeightDp)
-            .background(if (isCurrent) colors.currentLineBackground else Color.Transparent),
-        verticalAlignment = Alignment.Top
+            .background(rowBackground)
     ) {
+        Row(modifier = Modifier.fillMaxSize(), verticalAlignment = Alignment.Top) {
+            if (style.showLineNumbers) {
+                Spacer(Modifier.width(gutterWidth))
+            }
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .pointerInput(index, version) {
+                        detectTapGestures(
+                            onTap = { offset -> onTapLine(index, offset.x) },
+                            onDoubleTap = { offset -> onDoubleTapLine(index, offset.x) }
+                        )
+                    }
+            ) {
+                selectionSpans.forEach { span ->
+                    Box(
+                        modifier = Modifier
+                            .offset { IntOffset((span.first * charWidth + textPadding).roundToInt(), 0) }
+                            .width(with(density) { ((span.last - span.first + 1) * charWidth).toDp() })
+                            .height(lineHeightDp)
+                            .background(colors.selection)
+                    )
+                }
+                Text(
+                    text = annotated,
+                    style = monoStyle,
+                    color = colors.foreground,
+                    softWrap = false,
+                    maxLines = 1,
+                    modifier = Modifier.padding(start = 10.dp)
+                )
+                caretColumns.forEach { column ->
+                    Box(
+                        modifier = Modifier
+                            .offset { IntOffset((column * charWidth + textPadding).roundToInt(), 0) }
+                            .width(2.dp)
+                            .height(with(density) { lineHeight.toDp() })
+                            .background(colors.caret)
+                    )
+                }
+            }
+        }
+        // Line numbers stay pinned to the left: they are drawn on top and shifted
+        // back by the current horizontal scroll offset.
         if (style.showLineNumbers) {
             Text(
                 text = (index + 1).toString(),
                 modifier = Modifier
                     .width(gutterWidth)
-                    .padding(end = 8.dp)
-                    .fillMaxHeight(),
+                    .fillMaxHeight()
+                    .offset { IntOffset(hScroll.value, 0) }
+                    .background(gutterBackground)
+                    .padding(end = 8.dp),
                 style = monoStyle,
                 color = if (isCurrent) colors.gutterActiveForeground else colors.gutterForeground,
                 textAlign = TextAlign.End,
                 maxLines = 1
             )
-        }
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxHeight()
-                .horizontalScroll(hScroll)
-                .pointerInput(index, version) {
-                    detectTapGestures(
-                        onTap = { offset -> onTapLine(index, offset.x) },
-                        onDoubleTap = { offset -> onDoubleTapLine(index, offset.x) }
-                    )
-                }
-        ) {
-            Spacer(Modifier.width(contentWidth).height(lineHeightDp))
-            selectionSpans.forEach { span ->
-                Box(
-                    modifier = Modifier
-                        .offset { IntOffset((span.first * charWidth + textPadding).roundToInt(), 0) }
-                        .width(with(density) { ((span.last - span.first + 1) * charWidth).toDp() })
-                        .height(lineHeightDp)
-                        .background(colors.selection)
-                )
-            }
-            Text(
-                text = annotated,
-                style = monoStyle,
-                color = colors.foreground,
-                softWrap = false,
-                maxLines = 1,
-                modifier = Modifier.padding(start = 10.dp)
-            )
-            caretColumns.forEach { column ->
-                Box(
-                    modifier = Modifier
-                        .offset { IntOffset((column * charWidth + textPadding).roundToInt(), 0) }
-                        .width(2.dp)
-                        .height(with(density) { lineHeight.toDp() })
-                        .background(colors.caret)
-                )
-            }
         }
     }
 }
