@@ -8,11 +8,44 @@ plugins {
     alias(libs.plugins.hilt)
 }
 
-val keystoreProps = Properties().apply {
-    val file = rootProject.file("keystore.properties")
-    if (file.exists()) file.inputStream().use { load(it) }
+// Release signing values are read, in order of precedence, from:
+//   1. keystore.properties   (local file, git-ignored)
+//   2. local.properties      (local file, git-ignored)
+//   3. environment variables (CI: CODEEDITOR_STORE_FILE, ...)
+val signingProps = Properties().apply {
+    listOf("local.properties", "keystore.properties").forEach { name ->
+        rootProject.file(name).takeIf { it.exists() }?.inputStream()?.use { load(it) }
+    }
 }
-val hasReleaseKeystore = keystoreProps.getProperty("storeFile") != null
+
+fun signingValue(key: String, env: String): String? =
+    signingProps.getProperty(key)?.takeIf { it.isNotBlank() }
+        ?: System.getenv(env)?.takeIf { it.isNotBlank() }
+
+val releaseStoreFile = signingValue("storeFile", "CODEEDITOR_STORE_FILE")
+val releaseStorePassword = signingValue("storePassword", "CODEEDITOR_STORE_PASSWORD")
+val releaseKeyAlias = signingValue("keyAlias", "CODEEDITOR_KEY_ALIAS")
+val releaseKeyPassword = signingValue("keyPassword", "CODEEDITOR_KEY_PASSWORD")
+
+val hasReleaseKeystore = listOf(
+    releaseStoreFile,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword,
+).all { !it.isNullOrBlank() }
+
+// Never silently fall back to the debug key for a Play build.
+val isReleaseBuild = gradle.startParameter.taskNames.any {
+    it.contains("release", ignoreCase = true) || it.contains("bundle", ignoreCase = true)
+}
+if (isReleaseBuild && !hasReleaseKeystore) {
+    throw GradleException(
+        "Release signing is not configured.\n" +
+            "Copy keystore.properties.template to keystore.properties, or add the keys " +
+            "to local.properties, or export CODEEDITOR_STORE_FILE / CODEEDITOR_STORE_PASSWORD / " +
+            "CODEEDITOR_KEY_ALIAS / CODEEDITOR_KEY_PASSWORD."
+    )
+}
 
 android {
     namespace = "com.codeeditor"
@@ -23,38 +56,36 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = 1
-        versionName = "0.1.0"
+        versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
     }
 
     signingConfigs {
-        if (hasReleaseKeystore) {
-            create("release") {
-                storeFile = file(keystoreProps.getProperty("storeFile"))
-                storePassword = keystoreProps.getProperty("storePassword")
-                keyAlias = keystoreProps.getProperty("keyAlias")
-                keyPassword = keystoreProps.getProperty("keyPassword")
-            }
+        create("release") {
+            storeFile = releaseStoreFile?.let { rootProject.file(it) }
+            storePassword = releaseStorePassword
+            keyAlias = releaseKeyAlias
+            keyPassword = releaseKeyPassword
+            // v2 + v3 are what Play Console verifies today. v1 (JAR) is not
+            // needed because minSdk = 26 (v2 works from Android 7.0 / API 24).
+            enableV1Signing = false
+            enableV2Signing = true
+            enableV3Signing = true
         }
     }
 
     buildTypes {
         release {
+            isDebuggable = false
             isMinifyEnabled = true
             isShrinkResources = true
-            isDebuggable = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = if (hasReleaseKeystore) {
-                signingConfigs.getByName("release")
-            } else {
-                // Falls back to the debug key so `assembleRelease` works out of the box.
-                signingConfigs.getByName("debug")
-            }
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 

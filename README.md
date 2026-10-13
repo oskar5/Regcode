@@ -68,21 +68,47 @@ gradle wrapper            # лише якщо gradle-wrapper.jar відсутн�
 
 ## Release-збірка з власним підписом
 
-1. Згенеруйте keystore:
+1. Згенеруйте keystore (RSA 2048, термін дії ~27 років):
    ```bash
    keytool -genkeypair -v -keystore codeeditor-release.jks \
-     -alias codeeditor -keyalg RSA -keysize 2048 -validity 10000
+     -alias codeeditor -keyalg RSA -keysize 2048 -validity 10000 -storetype PKCS12
    ```
-2. Скопіюйте `keystore.properties.template` → `keystore.properties` і заповніть значення.
-3. Зберіть:
+2. Скопіюйте `keystore.properties.template` → `keystore.properties` і заповніть
+   `storeFile` / `storePassword` / `keyAlias` / `keyPassword`. Ті самі ключі можна
+   покласти в `local.properties` або віддати через змінні середовища
+   `CODEEDITOR_STORE_FILE`, `CODEEDITOR_STORE_PASSWORD`, `CODEEDITOR_KEY_ALIAS`,
+   `CODEEDITOR_KEY_PASSWORD` (для CI).
+3. Зберіть AAB (формат для Google Play) та, за потреби, APK:
    ```bash
-   ./gradlew :app:assembleRelease
+   ./gradlew :app:bundleRelease   # -> app/build/outputs/bundle/release/app-release.aab
+   ./gradlew :app:assembleRelease # -> app/build/outputs/apk/release/app-release.apk
    ```
-   APK з'явиться в `app/build/outputs/apk/release/`.
 
-Якщо `keystore.properties` відсутній, release тимчасово підписується debug-ключем
-(зручно для локальної перевірки R8/resource shrinking). Файли `*.jks` і
-`keystore.properties` додані в `.gitignore` — не комітьте їх.
+`signingConfigs.release` використовує ваш upload-ключ; `buildTypes.release` має
+`isDebuggable = false`, `isMinifyEnabled = true`, `isShrinkResources = true` і
+R8/ProGuard-правила з `proguard-rules.pro`. Якщо ключ не налаштовано, будь-яка
+`*Release`/`*Bundle` задача падає з явною помилкою — debug-ключ для релізу не
+використовується. Файли `*.jks`, `keystore.properties` і `local.properties`
+додані в `.gitignore` — не комітьте їх.
+
+### Перевірка підпису
+
+```bash
+# схеми підпису: має бути v2 true, v3 true; сертифікат — ваш (не Android Debug)
+"$ANDROID_HOME/build-tools/35.0.0/apksigner" verify -v --print-certs \
+  app/build/outputs/apk/release/app-release.apk
+
+# debuggable має бути false
+"$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" manifest debuggable \
+  app/build/outputs/apk/release/app-release.apk
+
+# підпис самого AAB
+jarsigner -verify app/build/outputs/bundle/release/app-release.aab
+```
+
+> **Termux (aarch64):** офіційні build-tools від Google — x86_64. Для локальної
+> збірки на ARM встановіть `pkg install aapt2` і додайте прапорець
+> `-Pandroid.aapt2FromMavenOverride=$PREFIX/bin/aapt2`.
 
 ## Тести
 
