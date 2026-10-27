@@ -176,9 +176,6 @@ fun WorkspaceScreen(
                         IconButton(onClick = { onAction(EditorAction.SelectAll) }) {
                             Icon(Icons.Filled.SelectAll, contentDescription = stringResource(R.string.menu_select_all))
                         }
-                        IconButton(onClick = { onAction(EditorAction.SelectAll) }) {
-                            Icon(Icons.Filled.SelectAll, contentDescription = stringResource(R.string.menu_select_all))
-                        }
                         IconButton(onClick = { onAction(EditorAction.OpenFind) }) {
                             Icon(Icons.Filled.Search, contentDescription = stringResource(R.string.find_hint))
                         }

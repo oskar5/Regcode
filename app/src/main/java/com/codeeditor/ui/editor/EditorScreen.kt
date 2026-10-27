@@ -194,7 +194,7 @@ fun EditorSurface(
                                 else if (change.position.y > size.height) listState.dispatchRawDelta(lineHeight)
                                 if (change.position.x < 0f) hScroll.dispatchRawDelta(-charWidth * 4)
                                 else if (change.position.x > size.width) hScroll.dispatchRawDelta(charWidth * 4)
-                                val line = (listState.firstVisibleItemIndex + (change.position.y.coerceIn(0f, size.height - 1f) / lineHeight).toInt())
+                                val line = (listState.firstVisibleItemIndex + (change.position.y / lineHeight).toInt())
                                     .coerceIn(0, (state.lineCount - 1).coerceAtLeast(0))
                                 val col = ((change.position.x + hScroll.value - gutterWidthPx - textPadding) / charWidth)
                                     .roundToInt().coerceAtLeast(0)
