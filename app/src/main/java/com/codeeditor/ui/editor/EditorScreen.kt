@@ -200,7 +200,7 @@ fun EditorSurface(
                             val col = ((x - textPadding) / charWidth).roundToInt().coerceAtLeast(0)
                             onAction(EditorAction.MoveTo(line, col))
                             onAction(EditorAction.SelectWord)
-                        }
+                        },
                         onLongPressLine = { line, x ->
                             focusRequester.requestFocus()
                             val col = ((x - textPadding) / charWidth).roundToInt().coerceAtLeast(0)
