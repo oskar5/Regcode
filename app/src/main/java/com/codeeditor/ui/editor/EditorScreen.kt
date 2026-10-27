@@ -201,6 +201,12 @@ fun EditorSurface(
                             onAction(EditorAction.MoveTo(line, col))
                             onAction(EditorAction.SelectWord)
                         }
+                        onLongPressLine = { line, x ->
+                            focusRequester.requestFocus()
+                            val col = ((x - textPadding) / charWidth).roundToInt().coerceAtLeast(0)
+                            onAction(EditorAction.MoveTo(line, col))
+                            onAction(EditorAction.SelectWord)
+                        }
                     )
                 }
             }
@@ -248,7 +254,8 @@ private fun EditorLineRow(
     lineText: (Int) -> String,
     tokensForLine: (Int) -> List<SyntaxToken>,
     onTapLine: (Int, Float) -> Unit,
-    onDoubleTapLine: (Int, Float) -> Unit
+    onDoubleTapLine: (Int, Float) -> Unit,
+    onLongPressLine: (Int, Float) -> Unit = { _, _ -> }
 ) {
     val version = state.contentVersion
     val text = remember(index, version) { lineText(index) }
@@ -285,7 +292,10 @@ private fun EditorLineRow(
                     .pointerInput(index, version) {
                         detectTapGestures(
                             onTap = { offset -> onTapLine(index, offset.x) },
-                            onDoubleTap = { offset -> onDoubleTapLine(index, offset.x) }
+                            onDoubleTap = { offset -> onDoubleTapLine(index, offset.x) },
+                            onLongPress = { offset ->
+                                onLongPressLine(index, offset.x)
+                            }
                         )
                     }
             ) {
