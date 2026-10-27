@@ -152,30 +152,6 @@ fun WorkspaceScreen(
                         IconButton(onClick = { onAction(EditorAction.Redo) }, enabled = state.editor.canRedo) {
                             Icon(Icons.Filled.Redo, contentDescription = stringResource(R.string.menu_redo))
                         }
-                        IconButton(onClick = {
-                            val text = state.editor.selectedText
-                            if (text.isNotEmpty()) clipboard.setText(AnnotatedString(text))
-                        }, enabled = state.editor.selectedText.isNotEmpty()) {
-                            Icon(Icons.Filled.ContentCopy, contentDescription = stringResource(R.string.menu_copy))
-                        }
-                        IconButton(onClick = {
-                            val text = state.editor.selectedText
-                            if (text.isNotEmpty()) {
-                                clipboard.setText(AnnotatedString(text))
-                                onAction(EditorAction.DeleteSelection)
-                            }
-                        }, enabled = state.editor.selectedText.isNotEmpty()) {
-                            Icon(Icons.Filled.ContentCut, contentDescription = stringResource(R.string.menu_cut))
-                        }
-                        IconButton(onClick = {
-                            val text = clipboard.getText()?.text
-                            if (!text.isNullOrEmpty()) onAction(EditorAction.Paste(text))
-                        }) {
-                            Icon(Icons.Filled.ContentPaste, contentDescription = stringResource(R.string.menu_paste))
-                        }
-                        IconButton(onClick = { onAction(EditorAction.SelectAll) }) {
-                            Icon(Icons.Filled.SelectAll, contentDescription = stringResource(R.string.menu_select_all))
-                        }
                         IconButton(onClick = { onAction(EditorAction.OpenFind) }) {
                             Icon(Icons.Filled.Search, contentDescription = stringResource(R.string.find_hint))
                         }
@@ -213,6 +189,46 @@ fun WorkspaceScreen(
                                         onSaveAs()
                                     },
                                     leadingIcon = { Icon(Icons.Filled.Save, null) }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.menu_copy)) },
+                                    onClick = {
+                                        showMenu = false
+                                        val text = state.editor.selectedText
+                                        if (text.isNotEmpty()) clipboard.setText(AnnotatedString(text))
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.ContentCopy, null) },
+                                    enabled = state.editor.selectedText.isNotEmpty()
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.menu_cut)) },
+                                    onClick = {
+                                        showMenu = false
+                                        val text = state.editor.selectedText
+                                        if (text.isNotEmpty()) {
+                                            clipboard.setText(AnnotatedString(text))
+                                            onAction(EditorAction.DeleteSelection)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.ContentCut, null) },
+                                    enabled = state.editor.selectedText.isNotEmpty()
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.menu_paste)) },
+                                    onClick = {
+                                        showMenu = false
+                                        val text = clipboard.getText()?.text
+                                        if (!text.isNullOrEmpty()) onAction(EditorAction.Paste(text))
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.ContentPaste, null) }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.menu_select_all)) },
+                                    onClick = {
+                                        showMenu = false
+                                        onAction(EditorAction.SelectAll)
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.SelectAll, null) }
                                 )
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.menu_goto_line)) },
