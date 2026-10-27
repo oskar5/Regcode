@@ -28,7 +28,7 @@ class WordIndexTest {
 
     @Test
     fun `empty prefix yields nothing`() {
-        assertEquals(emptyList(), WordIndex.fromText("anything").matches(""))
+        assertEquals(emptyList<String>(), WordIndex.fromText("anything").matches(""))
     }
 }
 
@@ -69,13 +69,19 @@ class CompletionEngineTest {
     fun `no providers means no results`() {
         val index = WordIndex.fromText("foo")
         val context = CompletionContext("f", 1, "kotlin", index)
-        assertEquals(emptyList(), CompletionEngine.complete("f", context, emptyList()))
+        assertEquals(
+            emptyList<CompletionItem>(),
+            CompletionEngine.complete("f", context, emptyList())
+        )
     }
 
     @Test
     fun `empty prefix produces no results`() {
         val index = WordIndex.fromText("foo")
         val context = CompletionContext("", 0, "kotlin", index)
-        assertEquals(emptyList(), CompletionEngine.complete("", context, emptyList()))
+        assertEquals(
+            emptyList<CompletionItem>(),
+            CompletionEngine.complete("", context, emptyList())
+        )
     }
 }

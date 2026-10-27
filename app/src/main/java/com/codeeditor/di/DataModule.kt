@@ -30,7 +30,7 @@ object DatabaseModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): SessionDatabase =
         Room.databaseBuilder(context, SessionDatabase::class.java, "codeeditor-session.db")
-            .fallbackToDestructiveMigration()
+            .addMigrations(SessionDatabase.MIGRATION_1_2)
             .build()
 
     @Provides

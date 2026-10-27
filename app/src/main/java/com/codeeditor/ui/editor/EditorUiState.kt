@@ -17,7 +17,9 @@ data class EditorUiState(
     val isDirty: Boolean = false,
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
-    val lineEnding: LineEnding = LineEnding.LF
+    val lineEnding: LineEnding = LineEnding.LF,
+    /** Text covered by the primary selection, for clipboard copy/cut. */
+    val selectedText: String = ""
 ) {
     /** All carets/selections, falling back to the primary one. */
     val effectiveSelections: List<Selection>

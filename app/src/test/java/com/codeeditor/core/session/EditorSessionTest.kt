@@ -244,4 +244,16 @@ class EditorSessionTest {
         s.insertText(" baz")
         assertTrue(s.wordIndex().matches("ba").contains("baz"))
     }
+
+    @Test
+    fun `setCaret handles boundaries`() {
+        val s = session("a\nb\nc")
+        s.setCaret(-1, 0)
+        assertEquals(0, s.caret.line)
+        s.setCaret(100, 5)
+        assertEquals(2, s.caret.line)
+        s.setCaret(0, 100)
+        assertEquals(1, s.caret.column)
+    }
+
 }

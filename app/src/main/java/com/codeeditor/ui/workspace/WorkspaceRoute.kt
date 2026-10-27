@@ -17,6 +17,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.codeeditor.R
 import com.codeeditor.domain.model.EditorSettings
 import com.codeeditor.domain.model.ThemeMode
+import com.codeeditor.ui.editor.EditorAction
 import com.codeeditor.ui.editor.EditorStyle
 import com.codeeditor.ui.editor.FindCallbacks
 import com.codeeditor.ui.settings.SettingsCallbacks
@@ -33,6 +34,10 @@ fun WorkspaceRoute(viewModel: WorkspaceViewModel = hiltViewModel()) {
     val openFolderLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
     ) { uri -> uri?.let { viewModel.openFolder(it.toString()) } }
+
+    val saveAsLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("*/*")
+    ) { uri -> uri?.let { viewModel.saveActiveAs(it.toString()) } }
 
     val findCallbacks = remember(viewModel) {
         FindCallbacks(
@@ -81,6 +86,8 @@ fun WorkspaceRoute(viewModel: WorkspaceViewModel = hiltViewModel()) {
                 onCloseTab = viewModel::closeTab,
                 onNewFile = viewModel::newFile,
                 onSave = viewModel::saveActive,
+                onSaveAs = { saveAsLauncher.launch("*/*") },
+                onGoToLine = { viewModel.onAction(EditorAction.GoToLine(it)) },
                 onOpenFilePicker = { openFileLauncher.launch(arrayOf("*/*")) },
                 onOpenFolderPicker = { openFolderLauncher.launch(null) },
                 onOpenFile = viewModel::openFile,

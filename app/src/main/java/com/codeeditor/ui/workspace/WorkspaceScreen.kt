@@ -21,17 +21,25 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Undo
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.ContentCut
+import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.VerticalDivider
@@ -78,6 +86,8 @@ fun WorkspaceScreen(
     onCloseTab: (String) -> Unit,
     onNewFile: () -> Unit,
     onSave: () -> Unit,
+    onSaveAs: () -> Unit,
+    onGoToLine: (Int) -> Unit,
     onOpenFilePicker: () -> Unit,
     onOpenFolderPicker: () -> Unit,
     onOpenFile: (String) -> Unit,
@@ -86,8 +96,11 @@ fun WorkspaceScreen(
     onMessageShown: () -> Unit
 ) {
     val colors = LocalEditorColors.current
+    @Suppress("DEPRECATION")
+    val clipboard = LocalClipboardManager.current
     var showFiles by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
+    var showGoToLine by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
     var sidePanelOpen by rememberSaveable { mutableStateOf(true) }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -138,6 +151,27 @@ fun WorkspaceScreen(
                         IconButton(onClick = { onAction(EditorAction.Redo) }, enabled = state.editor.canRedo) {
                             Icon(Icons.Filled.Redo, contentDescription = stringResource(R.string.menu_redo))
                         }
+                        IconButton(onClick = {
+                            val text = state.editor.selectedText
+                            if (text.isNotEmpty()) clipboard.setText(AnnotatedString(text))
+                        }, enabled = state.editor.selectedText.isNotEmpty()) {
+                            Icon(Icons.Filled.ContentCopy, contentDescription = stringResource(R.string.menu_copy))
+                        }
+                        IconButton(onClick = {
+                            val text = state.editor.selectedText
+                            if (text.isNotEmpty()) {
+                                clipboard.setText(AnnotatedString(text))
+                                onAction(EditorAction.DeleteSelection)
+                            }
+                        }, enabled = state.editor.selectedText.isNotEmpty()) {
+                            Icon(Icons.Filled.ContentCut, contentDescription = stringResource(R.string.menu_cut))
+                        }
+                        IconButton(onClick = {
+                            val text = clipboard.getText()?.text
+                            if (!text.isNullOrEmpty()) onAction(EditorAction.Paste(text))
+                        }) {
+                            Icon(Icons.Filled.ContentPaste, contentDescription = stringResource(R.string.menu_paste))
+                        }
                         IconButton(onClick = { onAction(EditorAction.OpenFind) }) {
                             Icon(Icons.Filled.Search, contentDescription = stringResource(R.string.find_hint))
                         }
@@ -167,6 +201,21 @@ fun WorkspaceScreen(
                                         onOpenFilePicker()
                                     },
                                     leadingIcon = { Icon(Icons.Filled.FolderOpen, null) }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.menu_save_as)) },
+                                    onClick = {
+                                        showMenu = false
+                                        onSaveAs()
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Save, null) }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.menu_goto_line)) },
+                                    onClick = {
+                                        showMenu = false
+                                        showGoToLine = true
+                                    }
                                 )
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.menu_key_row)) },
@@ -217,6 +266,9 @@ fun WorkspaceScreen(
                         onSelectTab = onSelectTab,
                         onCloseTab = onCloseTab,
                         onNewFile = onNewFile,
+                        onSaveAs = onSaveAs,
+                        onGoToLine = { showGoToLine = true },
+                        onOpenFilePicker = onOpenFilePicker,
                         compactHeight = isLandscape,
                         modifier = Modifier.fillMaxSize()
                     )
@@ -254,6 +306,9 @@ fun WorkspaceScreen(
                         onSelectTab = onSelectTab,
                         onCloseTab = onCloseTab,
                         onNewFile = onNewFile,
+                        onSaveAs = onSaveAs,
+                        onGoToLine = { showGoToLine = true },
+                        onOpenFilePicker = onOpenFilePicker,
                         compactHeight = isLandscape,
                         modifier = Modifier
                             .weight(1f)
@@ -296,6 +351,34 @@ fun WorkspaceScreen(
             callbacks = settingsCallbacks
         )
     }
+
+    if (showGoToLine) {
+        var lineText by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showGoToLine = false },
+            title = { Text(stringResource(R.string.menu_goto_line)) },
+            text = {
+                TextField(
+                    value = lineText,
+                    onValueChange = { lineText = it.filter { c -> c.isDigit() } },
+                    singleLine = true,
+                    label = { Text(stringResource(R.string.menu_goto_line)) }
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        lineText.toIntOrNull()?.let { onGoToLine(it) }
+                        showGoToLine = false
+                    },
+                    enabled = lineText.isNotEmpty()
+                ) { Text(stringResource(R.string.menu_goto_line)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showGoToLine = false }) { Text(stringResource(R.string.dialog_cancel)) }
+            }
+        )
+    }
 }
 
 @Composable
@@ -312,6 +395,9 @@ private fun EditorPane(
     onSelectTab: (String) -> Unit,
     onCloseTab: (String) -> Unit,
     onNewFile: () -> Unit,
+    onSaveAs: () -> Unit,
+    onGoToLine: () -> Unit,
+    onOpenFilePicker: () -> Unit,
     compactHeight: Boolean,
     modifier: Modifier
 ) {
@@ -343,7 +429,10 @@ private fun EditorPane(
                 onAction = onAction,
                 modifier = Modifier.fillMaxSize(),
                 completionVisible = state.completion.visible,
-                onFontSizeChange = onFontSizeChange
+                onFontSizeChange = onFontSizeChange,
+                onRequestOpen = onOpenFilePicker,
+                onRequestSaveAs = onSaveAs,
+                onRequestGoToLine = onGoToLine
             )
             CompletionPopup(
                 state = state.completion,

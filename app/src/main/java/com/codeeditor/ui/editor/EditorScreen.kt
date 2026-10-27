@@ -50,6 +50,8 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
+import androidx.compose.ui.platform.ClipboardManager
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
@@ -79,11 +81,16 @@ fun EditorSurface(
     onAction: (EditorAction) -> Unit,
     modifier: Modifier = Modifier,
     completionVisible: Boolean = false,
-    onFontSizeChange: (Float) -> Unit = {}
+    onFontSizeChange: (Float) -> Unit = {},
+    onRequestOpen: () -> Unit = {},
+    onRequestSaveAs: () -> Unit = {},
+    onRequestGoToLine: () -> Unit = {}
 ) {
     val colors = LocalEditorColors.current
     val density = LocalDensity.current
     val measurer = rememberTextMeasurer()
+    @Suppress("DEPRECATION")
+    val clipboard = LocalClipboardManager.current
 
     val monoStyle = remember(style) {
         TextStyle(
@@ -212,7 +219,13 @@ fun EditorSurface(
                 .align(Alignment.TopStart)
                 .alpha(0f)
                 .focusRequester(focusRequester)
-                .onPreviewKeyEvent { event -> handleHardwareKey(event, onAction, completionVisible) },
+                .onPreviewKeyEvent { event ->
+                    when {
+                        handleCommandKey(event, onRequestOpen, onRequestSaveAs, onRequestGoToLine) -> true
+                        handleClipboardKey(event, clipboard, state.selectedText, onAction) -> true
+                        else -> handleHardwareKey(event, onAction, completionVisible)
+                    }
+                },
             textStyle = monoStyle,
             cursorBrush = SolidColor(Color.Transparent)
         )
@@ -375,6 +388,7 @@ private fun handleHardwareKey(
         ctrl && shift && event.key == Key.Z -> { onAction(EditorAction.Redo); true }
         ctrl && event.key == Key.Z -> { onAction(EditorAction.Undo); true }
         ctrl && event.key == Key.Y -> { onAction(EditorAction.Redo); true }
+        ctrl && !shift && event.key == Key.S -> { onAction(EditorAction.Save); true }
         ctrl && event.key == Key.Slash -> { onAction(EditorAction.ToggleComment); true }
         ctrl && shift && event.key == Key.D -> { onAction(EditorAction.DuplicateLine); true }
         ctrl && event.key == Key.D -> { onAction(EditorAction.AddNextOccurrence); true }
@@ -396,6 +410,64 @@ private fun handleHardwareKey(
         event.key == Key.DirectionDown -> { onAction(EditorAction.MoveDown); true }
         event.key == Key.MoveHome -> { onAction(EditorAction.MoveLineStart); true }
         event.key == Key.MoveEnd -> { onAction(EditorAction.MoveLineEnd); true }
+        else -> false
+    }
+}
+
+/**
+ * Handles shortcuts that open host-level UI (file picker, Save As, Go to line),
+ * which the editor surface cannot perform itself. Returns true when consumed.
+ */
+private fun handleCommandKey(
+    event: KeyEvent,
+    onRequestOpen: () -> Unit,
+    onRequestSaveAs: () -> Unit,
+    onRequestGoToLine: () -> Unit
+): Boolean {
+    if (event.type != KeyEventType.KeyDown) return false
+    val ctrl = event.isCtrlPressed || event.isMetaPressed
+    if (!ctrl) return false
+    val shift = event.isShiftPressed
+    return when {
+        shift && event.key == Key.S -> { onRequestSaveAs(); true }
+        !shift && event.key == Key.O -> { onRequestOpen(); true }
+        !shift && event.key == Key.G -> { onRequestGoToLine(); true }
+        else -> false
+    }
+}
+
+/**
+ * Handles the clipboard and select-all shortcuts, which need the system
+ * clipboard rather than the editor session. Returns true when consumed.
+ */
+@Suppress("DEPRECATION")
+private fun handleClipboardKey(
+    event: KeyEvent,
+    clipboard: ClipboardManager,
+    selectedText: String,
+    onAction: (EditorAction) -> Unit
+): Boolean {
+    if (event.type != KeyEventType.KeyDown) return false
+    val ctrl = event.isCtrlPressed || event.isMetaPressed
+    if (!ctrl) return false
+    return when (event.key) {
+        Key.A -> { onAction(EditorAction.SelectAll); true }
+        Key.C -> {
+            if (selectedText.isNotEmpty()) clipboard.setText(AnnotatedString(selectedText))
+            true
+        }
+        Key.X -> {
+            if (selectedText.isNotEmpty()) {
+                clipboard.setText(AnnotatedString(selectedText))
+                onAction(EditorAction.DeleteSelection)
+            }
+            true
+        }
+        Key.V -> {
+            val text = clipboard.getText()?.text
+            if (!text.isNullOrEmpty()) onAction(EditorAction.Paste(text))
+            true
+        }
         else -> false
     }
 }

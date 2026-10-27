@@ -21,6 +21,9 @@
     <string name="menu_settings">Налаштування</string>
     <string name="menu_more">Більше</string>
     <string name="menu_new">Новий файл</string>
+    <string name="menu_save_as">Зберегти як</string>
+    <string name="dialog_cancel">Скасувати</string>
+    <string name="menu_goto_line">Перейти до рядка</string>
     <string name="menu_key_row">Рядок клавіш</string>
     <string name="settings_title">Налаштування редактора</string>
     <string name="settings_theme">Тема</string>
@@ -36,4 +39,7 @@
     <string name="settings_font_size">Розмір шрифту</string>
     <string name="settings_line_numbers">Показувати номери рядків</string>
     <string name="settings_word_wrap">Перенесення рядків</string>
+    <string name="menu_copy">Копіювати</string>
+    <string name="menu_cut">Вирізати</string>
+    <string name="menu_paste">Вставити</string>
 </resources>

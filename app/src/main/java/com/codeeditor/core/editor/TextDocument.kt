@@ -12,6 +12,12 @@ import com.codeeditor.core.editor.edit.TextEdit
  * stored as a materialised array: the number of newlines before any offset is
  * derived from per-node line counters, keeping line queries logarithmic too.
  *
+ * Characters inside a single piece are not scanned linearly any more: each
+ * backing buffer (the original text and the append-only insertion buffer) keeps
+ * a [NewlineIndex] of cumulative newline counts at fixed-size chunk boundaries.
+ * That turns the worst case — a 200 MB file that is still a single piece — from
+ * an O(n) scan per cursor move into an O(chunk) lookup plus a binary descent.
+ *
  * The [version] counter increments on every mutation and lets the UI decide
  * when to recompute syntax highlighting and redraw.
  */
@@ -20,7 +26,9 @@ class TextDocument(text: String = "") {
     private var seed: Int = 0x2F6E2B1
     private var original: String = text
     private val added: StringBuilder = StringBuilder()
-    private var root: Node? = makeNode(Piece(SRC_ORIGINAL, 0, text.length, text.breaks()))
+    private val originalIndex = NewlineIndex(CHUNK_SIZE)
+    private val addedIndex = NewlineIndex(CHUNK_SIZE)
+    private var root: Node? = null
     private var cachedSnapshot: String? = null
 
     /** Incremented on every mutation. Used by the UI layer to know when to redraw. */
@@ -35,6 +43,10 @@ class TextDocument(text: String = "") {
     var lineEnding: LineEnding = LineEnding.detect(text)
         private set
 
+    init {
+        resetRoot(text)
+    }
+
     fun snapshot(): String {
         cachedSnapshot?.let { return it }
         return extract(0, length).also { cachedSnapshot = it }
@@ -44,10 +56,17 @@ class TextDocument(text: String = "") {
     fun setText(newText: String) {
         original = newText
         added.clear()
-        root = makeNode(Piece(SRC_ORIGINAL, 0, newText.length, newText.breaks()))
+        originalIndex.reset()
+        addedIndex.reset()
+        resetRoot(newText)
         lineEnding = LineEnding.detect(newText)
-        cachedSnapshot = null
         version++
+    }
+
+    private fun resetRoot(newText: String) {
+        originalIndex.ensure(original)
+        root = makeNode(Piece(SRC_ORIGINAL, 0, newText.length, originalIndex.countIn(original, 0, newText.length)))
+        cachedSnapshot = null
     }
 
     /** The text of [line] without its line terminator. */
@@ -100,8 +119,10 @@ class TextDocument(text: String = "") {
         val o = offset.coerceIn(0, length)
         val addStart = added.length
         added.append(text)
+        addedIndex.ensure(added)
         val (left, right) = split(root, o)
-        root = merge(merge(left, makeNode(Piece(SRC_ADDED, addStart, text.length, text.breaks()))), right)
+        val node = makeNode(Piece(SRC_ADDED, addStart, text.length, addedIndex.countIn(added, addStart, addStart + text.length)))
+        root = merge(merge(left, node), right)
         cachedSnapshot = null
         version++
         return TextEdit.Insert(o, text)
@@ -187,25 +208,26 @@ class TextDocument(text: String = "") {
             val leftSize = nodeSize(cur.left)
             if (remaining <= leftSize) {
                 cur = cur.left
-            } else {
-                count += nodeLines(cur.left)
-                remaining -= leftSize
-                val p = cur.piece
-                val take = minOf(remaining, p.length)
-                if (take > 0) {
-                    val src = sourceOf(p)
-                    for (i in 0 until take) if (src[p.start + i] == '\n') count++
-                }
-                remaining -= take
-                if (remaining <= 0) break
-                cur = cur.right
+                continue
             }
+            count += nodeLines(cur.left)
+            remaining -= leftSize
+            val p = cur.piece
+            val take = minOf(remaining, p.length)
+            if (take > 0) {
+                val src = sourceOf(p)
+                count += indexFor(p.source).countIn(src, p.start, p.start + take)
+            }
+            remaining -= take
+            if (remaining <= 0) break
+            cur = cur.right
         }
         return count
     }
 
     /** Offset of the [n]-th '\n' character (1-based), or -1 if there are fewer. */
     private fun nthNewlineOffset(n: Int): Int {
+        if (n <= 0) return -1
         var remaining = n
         var offset = 0
         var cur = root
@@ -213,20 +235,21 @@ class TextDocument(text: String = "") {
             val leftLines = nodeLines(cur.left)
             if (remaining <= leftLines) {
                 cur = cur.left
-            } else {
-                offset += nodeSize(cur.left)
-                remaining -= leftLines
-                val p = cur.piece
-                val src = sourceOf(p)
-                for (i in 0 until p.length) {
-                    if (src[p.start + i] == '\n') {
-                        remaining--
-                        if (remaining == 0) return offset + i
-                    }
-                }
-                offset += p.length
-                cur = cur.right
+                continue
             }
+            offset += nodeSize(cur.left)
+            remaining -= leftLines
+            val p = cur.piece
+            if (remaining > p.ownLines) {
+                offset += p.length
+                remaining -= p.ownLines
+                cur = cur.right
+                continue
+            }
+            val src = sourceOf(p)
+            val local = indexFor(p.source)
+                .offsetOfNthNewline(src, p.start, p.start + p.length, remaining)
+            return if (local < 0) -1 else offset + (local - p.start)
         }
         return -1
     }
@@ -234,12 +257,15 @@ class TextDocument(text: String = "") {
     private fun sourceOf(piece: Piece): CharSequence =
         if (piece.source == SRC_ORIGINAL) original else added
 
-    private fun pieceBreaks(source: Int, start: Int, length: Int): Int {
-        val src = if (source == SRC_ORIGINAL) original else added
-        var count = 0
-        for (i in start until start + length) if (src[i] == '\n') count++
-        return count
-    }
+    private fun indexFor(source: Int): NewlineIndex =
+        if (source == SRC_ORIGINAL) originalIndex else addedIndex
+
+    private fun pieceBreaks(source: Int, start: Int, length: Int): Int =
+        indexFor(source).countIn(
+            if (source == SRC_ORIGINAL) original else added,
+            start,
+            start + length
+        )
 
     /** Splits [root] into two trees at logical offset [k]. */
     private fun split(root: Node?, k: Int): Pair<Node?, Node?> {
@@ -309,12 +335,6 @@ class TextDocument(text: String = "") {
         return seed and 0x7FFFFFFF
     }
 
-    private fun String.breaks(): Int {
-        var count = 0
-        for (i in indices) if (this[i] == '\n') count++
-        return count
-    }
-
     private class Piece(val source: Int, val start: Int, val length: Int, val ownLines: Int)
 
     private class Node(val piece: Piece, val priority: Int) {
@@ -324,24 +344,131 @@ class TextDocument(text: String = "") {
         var lines: Int = piece.ownLines
     }
 
+    /**
+     * Cumulative newline counter over a chunked backing buffer.
+     *
+     * The backing buffers are never mutated in place (the original text is
+     * immutable and the insertion buffer only grows by appending), so the index
+     * only ever extends forward. `cumulative[k]` holds the number of newlines
+     * before offset `k * chunkSize`; the trailing, not-yet-full chunk is scanned
+     * on demand.
+     */
+    private class NewlineIndex(private val chunkSize: Int) {
+        private val cumulative = ArrayList<Int>().apply { add(0) }
+
+        fun reset() {
+            cumulative.clear()
+            cumulative.add(0)
+        }
+
+        fun ensure(source: CharSequence) {
+            var chunk = cumulative.size - 1
+            while ((chunk + 1) * chunkSize <= source.length) {
+                var count = cumulative[chunk]
+                val from = chunk * chunkSize
+                val to = from + chunkSize
+                for (i in from until to) if (source[i] == '\n') count++
+                cumulative.add(count)
+                chunk++
+            }
+        }
+
+        /** Newlines in `[0, offset)`. */
+        fun countBefore(source: CharSequence, offset: Int): Int {
+            if (offset <= 0) return 0
+            ensure(source)
+            var chunk = offset / chunkSize
+            if (chunk > cumulative.size - 1) chunk = cumulative.size - 1
+            var count = cumulative[chunk]
+            var i = chunk * chunkSize
+            while (i < offset && i < source.length) {
+                if (source[i] == '\n') count++
+                i++
+            }
+            return count
+        }
+
+        fun countIn(source: CharSequence, start: Int, end: Int): Int {
+            if (end <= start) return 0
+            return countBefore(source, end) - countBefore(source, start)
+        }
+
+        /**
+         * Offset of the [nth] (1-based) newline inside `[start, end)`, or -1.
+         * Binary-searches the prefix-count function, so only a handful of
+         * chunk-sized scans are needed even for a multi-hundred-MB piece.
+         */
+        fun offsetOfNthNewline(source: CharSequence, start: Int, end: Int, nth: Int): Int {
+            if (nth <= 0 || end <= start) return -1
+            ensure(source)
+            if (end > source.length) {
+                val fallbackEnd = source.length
+                if (fallbackEnd <= start) return -1
+                return offsetOfNthNewline(source, start, fallbackEnd, nth)
+            }
+            val base = countBefore(source, start)
+            val target = base + nth
+            var lo = start
+            var hi = end - 1
+            var result = -1
+            while (lo <= hi) {
+                val mid = (lo + hi) ushr 1
+                if (countBefore(source, mid + 1) >= target) {
+                    result = mid
+                    hi = mid - 1
+                } else {
+                    lo = mid + 1
+                }
+            }
+            return if (result >= start && source[result] == '\n') result else -1
+        }
+    }
+
     companion object {
         private const val SRC_ORIGINAL = 0
         private const val SRC_ADDED = 1
+
+        /** Characters per index chunk. Small enough to scan cheaply, large enough to stay compact. */
+        const val CHUNK_SIZE = 4096
     }
 }
 
 enum class LineEnding(val sequence: String) {
     LF("\n"),
-    CRLF("\r\n");
+    CRLF("\r\n"),
+    CR("\r");
 
     companion object {
         /**
-         * Detects the dominant line-ending convention. Any '\r' character means
-         * the file is CRLF-oriented (covers the traditional check that missed
-         * '\r\n' appearing right at the very start of the buffer). Files with no
-         * carriage returns at all are treated as LF.
+         * Detects the dominant line-ending convention by counting actual line
+         * breaks, so a lone CRLF pair no longer forces a whole LF file to be
+         * treated as CRLF and CR-only (classic Mac) files are recognised too.
          */
-        fun detect(text: String): LineEnding =
-            if (text.indexOf('\r') >= 0) CRLF else LF
+        fun detect(text: String): LineEnding {
+            var crlf = 0
+            var lf = 0
+            var cr = 0
+            var i = 0
+            while (i < text.length) {
+                when (text[i]) {
+                    '\r' -> {
+                        if (i + 1 < text.length && text[i + 1] == '\n') {
+                            crlf++
+                            i++
+                        } else {
+                            cr++
+                        }
+                    }
+                    '\n' -> lf++
+                }
+                i++
+            }
+            return when {
+                crlf == 0 && cr > 0 && lf == 0 -> CR
+                crlf >= cr && crlf >= lf && crlf > 0 -> CRLF
+                cr > lf -> CR
+                else -> LF
+            }
+        }
     }
 }

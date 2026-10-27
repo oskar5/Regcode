@@ -23,6 +23,14 @@ sealed interface EditorAction {
     data object MoveLineDown : EditorAction
     data object AddNextOccurrence : EditorAction
     data object SelectWord : EditorAction
+    data object SelectAll : EditorAction
+    /** Deletes the current selection (clipboard cut copies first in the UI). */
+    data object DeleteSelection : EditorAction
+    /** Saves the active document (Ctrl+S). */
+    data object Save : EditorAction
+    /** Pastes [text] from the system clipboard at the caret. */
+    data class Paste(val text: String) : EditorAction
+    data class GoToLine(val line: Int) : EditorAction
 
     data object OpenFind : EditorAction
     data object OpenReplace : EditorAction

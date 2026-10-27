@@ -43,6 +43,11 @@ import com.codeeditor.ui.editor.EditorAction.OpenReplace
 import com.codeeditor.ui.editor.EditorAction.ReplaceAll
 import com.codeeditor.ui.editor.EditorAction.ReplaceCurrent
 import com.codeeditor.ui.editor.EditorAction.SelectWord
+import com.codeeditor.ui.editor.EditorAction.SelectAll
+import com.codeeditor.ui.editor.EditorAction.DeleteSelection
+import com.codeeditor.ui.editor.EditorAction.Save
+import com.codeeditor.ui.editor.EditorAction.Paste
+import com.codeeditor.ui.editor.EditorAction.GoToLine
 import com.codeeditor.ui.editor.EditorAction.ToggleComment
 import com.codeeditor.ui.editor.EditorAction.InsertTab
 import com.codeeditor.ui.editor.EditorAction.InsertText
@@ -132,6 +137,7 @@ class WorkspaceViewModel @Inject constructor(
             AcceptCompletion -> { acceptCompletion(); return }
             DismissCompletion -> { dismissCompletion(); return }
             ToggleKeyRow -> { toggleKeyRow(); return }
+            Save -> { saveActive(); return }
             else -> Unit
         }
         val session = activeSession() ?: return
@@ -160,6 +166,19 @@ class WorkspaceViewModel @Inject constructor(
             MoveLineDown -> { dismissCompletion(); session.moveLineDown() }
             AddNextOccurrence -> { dismissCompletion(); session.addNextOccurrence() }
             SelectWord -> { dismissCompletion(); session.selectWordAtCaret() }
+            SelectAll -> { dismissCompletion(); session.selectAll() }
+            DeleteSelection -> { dismissCompletion(); session.deleteSelection() }
+            is Paste -> { dismissCompletion(); session.paste(action.text); autoComplete = false }
+            is GoToLine -> {
+                dismissCompletion()
+                val line = action.line
+                if (line < 1) {
+                    session.moveToDocumentStart()
+                } else {
+                    val target = (line - 1).coerceIn(0, session.lineCount() - 1)
+                    session.setCaret(target, 0)
+                }
+            }
             else -> Unit
         }
         scheduleAutosave(session)
@@ -462,8 +481,9 @@ class WorkspaceViewModel @Inject constructor(
         dismissCompletion()
         val closing = sessions[index]
         sessions.removeAt(index)
-        if (closing.uri != null) {
-            viewModelScope.launch { sessionRepository.remove(closing.uri) }
+        val closingUri = closing.uri
+        if (closingUri != null) {
+            viewModelScope.launch { sessionRepository.remove(closingUri) }
         }
         if (activeId == id) {
             activeId = sessions.getOrNull(index.coerceAtMost(sessions.size - 1))?.id
@@ -585,6 +605,42 @@ class WorkspaceViewModel @Inject constructor(
                     _state.update { it.copy(message = "Помилка збереження: ${error.message}") }
                 }
             schedulePersist()
+            refresh()
+        }
+    }
+
+    /**
+     * "Save As": writes the active buffer to [uri] (created by the SAF picker),
+     * then retargets the tab at the new file — updating its title and language —
+     * while the old file is left untouched.
+     */
+    fun saveActiveAs(uri: String) {
+        val session = activeSession() ?: return
+        viewModelScope.launch {
+            _state.update { it.copy(isLoading = true) }
+            runCatching {
+                fileRepository.takePersistablePermission(uri)
+                fileRepository.writeDocument(
+                    uri = uri,
+                    text = session.content,
+                    encoding = session.encoding,
+                    lineEnding = session.lineEnding,
+                    withBom = session.hasBom
+                )
+            }.onSuccess {
+                val previousUri = session.uri
+                val name = fileRepository.displayName(uri)
+                session.retarget(uri, name, LanguageRegistry.forFileName(name))
+                session.markSaved()
+                if (previousUri != null && previousUri != uri) {
+                    sessionRepository.remove(previousUri)
+                }
+                schedulePersist()
+                persistActiveUri()
+            }.onFailure { error ->
+                _state.update { it.copy(message = "Не вдалося зберегти файл: ${error.message}") }
+            }
+            _state.update { it.copy(isLoading = false) }
             refresh()
         }
     }
@@ -743,7 +799,8 @@ class WorkspaceViewModel @Inject constructor(
                 isDirty = it.dirty,
                 canUndo = it.canUndo,
                 canRedo = it.canRedo,
-                lineEnding = it.lineEnding
+                lineEnding = it.lineEnding,
+                selectedText = it.selectedText()
             )
         } ?: EditorUiState()
 

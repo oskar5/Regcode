@@ -69,4 +69,12 @@ class TextDocumentTest {
         doc.insert(0, "a")
         assertEquals(v + 1, doc.version)
     }
+
+    @Test
+    fun `positionAt for various line endings`() {
+        val lf = TextDocument("a\nb")
+        assertEquals(TextPosition(1, 0), lf.positionAt(2))
+        val crlf = TextDocument("a\r\nb")
+        assertEquals(TextPosition(1, 0), crlf.positionAt(3))
+    }
 }

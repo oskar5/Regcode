@@ -9,6 +9,8 @@ import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.RoomDatabase
 import androidx.room.Upsert
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
 @Entity(tableName = "session_documents")
@@ -66,4 +68,47 @@ interface SessionDao {
 )
 abstract class SessionDatabase : RoomDatabase() {
     abstract fun sessionDao(): SessionDao
+
+    companion object {
+        /**
+         * v1 → v2: session buffers moved out of Room into
+         * [com.codeeditor.data.session.SessionBufferStore]. The old `content`
+         * column is dropped (replaced by `hasBufferedContent`) via a table
+         * rebuild, because SQLite before 3.35 (API < 33) cannot DROP COLUMN.
+         * The tab list and recent files are preserved; previously dirty text is
+         * re-read from the source file on the next open.
+         */
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `session_documents_new` (
+                        `uri` TEXT NOT NULL,
+                        `title` TEXT NOT NULL,
+                        `languageId` TEXT NOT NULL,
+                        `hasBufferedContent` INTEGER NOT NULL,
+                        `cursorLine` INTEGER NOT NULL,
+                        `cursorColumn` INTEGER NOT NULL,
+                        `isDirty` INTEGER NOT NULL,
+                        `orderIndex` INTEGER NOT NULL,
+                        PRIMARY KEY(`uri`)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    INSERT INTO `session_documents_new` (
+                        `uri`, `title`, `languageId`, `cursorLine`, `cursorColumn`,
+                        `isDirty`, `orderIndex`, `hasBufferedContent`
+                    )
+                    SELECT `uri`, `title`, `languageId`, `cursorLine`, `cursorColumn`,
+                           `isDirty`, `orderIndex`, 0
+                    FROM `session_documents`
+                    """.trimIndent()
+                )
+                db.execSQL("DROP TABLE `session_documents`")
+                db.execSQL("ALTER TABLE `session_documents_new` RENAME TO `session_documents`")
+            }
+        }
+    }
 }

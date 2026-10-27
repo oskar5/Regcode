@@ -1,5 +1,6 @@
 package com.codeeditor.core.session
 
+import com.codeeditor.core.editor.IndentConverter
 import com.codeeditor.core.editor.LineEnding
 import com.codeeditor.core.editor.Selection
 import com.codeeditor.core.editor.TextDocument
@@ -25,7 +26,7 @@ import com.codeeditor.core.search.TextSearch
  */
 class EditorSession(
     val id: String,
-    val uri: String?,
+    uri: String?,
     title: String,
     initialText: String,
     language: LanguageDefinition,
@@ -35,10 +36,10 @@ class EditorSession(
 
     val document: TextDocument = TextDocument(initialText)
     private val undoRedo = UndoRedoManager()
-    private val highlighter: SyntaxHighlighter = LanguageRegistry.highlighterFor(language)
+    private var highlighter: SyntaxHighlighter = LanguageRegistry.highlighterFor(language)
     private val lineStates = ArrayList<Int>().apply { add(HlState.NORMAL) }
 
-    private val selections = mutableListOf(Selection.Zero)
+    private val selections = mutableListOf(Selection.collapsed(document.positionAt(document.length)))
 
     private var wordIndexCache: WordIndex? = null
     private var wordIndexVersion: Int = -1
@@ -46,7 +47,22 @@ class EditorSession(
     private var maxLineLengthVersion: Int = -1
     private var cachedMaxLineLength: Int = 0
 
+    /**
+     * Line whose length produced [cachedMaxLineLength], plus the dirty range of
+     * the last edit. This lets [maxLineLength] update in O(1) for the common
+     * "typing inside a line" case instead of rescanning a multi-hundred-MB
+     * buffer on every keystroke; a full rescan happens only when the line that
+     * currently holds the maximum is touched or when an edit changes the line
+     * count (which is when the cached maximum can no longer be trusted).
+     */
+    private var maxLineLine: Int = -1
+    private var lengthDirtyFrom: Int = -1
+    private var lengthDirtyTo: Int = -1
+    private var lengthDirtyAll: Boolean = false
+
     var title: String = title
+    var uri: String? = uri
+        private set
     var dirty: Boolean = false
         private set
     var indentUnit: String = "    "
@@ -58,6 +74,7 @@ class EditorSession(
 
     /** Whether the next recorded simple edit may merge into the previous one. */
     private var coalesceNext: Boolean = false
+    private var desiredColumn: Int = 0
 
     val language: LanguageDefinition get() = highlighter.language
     val canUndo: Boolean get() = undoRedo.canUndo
@@ -80,23 +97,68 @@ class EditorSession(
      */
     fun maxLineLength(): Int {
         if (maxLineLengthVersion == document.version) return cachedMaxLineLength
+        val mustRescan = lengthDirtyAll ||
+            lengthDirtyFrom < 0 ||
+            document.length < FULL_SCAN_LIMIT ||
+            (maxLineLine in lengthDirtyFrom..lengthDirtyTo)
+        if (mustRescan) {
+            rescanMaxLineLength()
+        } else {
+            val end = minOf(lengthDirtyTo, document.lineCount - 1)
+            var line = lengthDirtyFrom
+            while (line <= end) {
+                val len = lineLength(line)
+                if (len > cachedMaxLineLength) {
+                    cachedMaxLineLength = len
+                    maxLineLine = line
+                }
+                line++
+            }
+        }
+        lengthDirtyFrom = -1
+        lengthDirtyTo = -1
+        lengthDirtyAll = false
+        maxLineLengthVersion = document.version
+        return cachedMaxLineLength
+    }
+
+    private fun rescanMaxLineLength() {
         val text = document.snapshot()
         var max = 0
+        var maxLine = -1
+        var line = 0
         var current = 0
         for (i in text.indices) {
             when (text[i]) {
                 '\n' -> {
-                    if (current > max) max = current
+                    if (current > max) { max = current; maxLine = line }
+                    line++
                     current = 0
                 }
                 '\r' -> Unit
                 else -> current++
             }
         }
-        if (current > max) max = current
+        if (current > max) { max = current; maxLine = line }
         cachedMaxLineLength = max
-        maxLineLengthVersion = document.version
-        return max
+        maxLineLine = maxLine
+    }
+
+    /** Records that lines [fromLine]..[toLine] were rewritten by an edit. */
+    private fun touchLines(fromLine: Int, toLine: Int = fromLine) {
+        if (lengthDirtyAll) return
+        if (lengthDirtyFrom < 0) {
+            lengthDirtyFrom = fromLine
+            lengthDirtyTo = toLine
+        } else {
+            lengthDirtyFrom = minOf(lengthDirtyFrom, fromLine)
+            lengthDirtyTo = maxOf(lengthDirtyTo, toLine)
+        }
+    }
+
+    /** Forces a full rescan on the next [maxLineLength] call. */
+    private fun touchAllLines() {
+        lengthDirtyAll = true
     }
 
     fun tokensForLine(line: Int): List<SyntaxToken> =
@@ -104,11 +166,20 @@ class EditorSession(
 
     /** Frequency-indexed words of the buffer, rebuilt only when the text changes. */
     fun wordIndex(): WordIndex {
-        if (wordIndexCache == null || wordIndexVersion != document.version) {
-            wordIndexCache = WordIndex.fromText(document.snapshot())
-            wordIndexVersion = document.version
+        if (wordIndexVersion == document.version && wordIndexCache != null) {
+            return wordIndexCache!!
         }
-        return wordIndexCache!!
+        // Rebuilding the word index is a full O(n) pass; on very large buffers we
+        // skip it (and complete only from the active line) to protect typing
+        // latency instead of freezing the UI on every keystroke.
+        val index = if (document.length <= WORD_INDEX_LIMIT) {
+            WordIndex.fromText(document.snapshot())
+        } else {
+            WordIndex.EMPTY
+        }
+        wordIndexCache = index
+        wordIndexVersion = document.version
+        return index
     }
 
     fun markSaved() {
@@ -119,6 +190,20 @@ class EditorSession(
 
     fun markDirty() {
         dirty = true
+    }
+
+    /**
+     * Points this session at a different file after "Save As": updates the URI,
+     * title and language (highlighting), discarding the per-line highlight cache
+     * since the syntax rules may have changed. The buffer, undo history, carets
+     * and encoding are left untouched.
+     */
+    fun retarget(newUri: String?, newTitle: String, newLanguage: LanguageDefinition) {
+        uri = newUri
+        title = newTitle
+        highlighter = LanguageRegistry.highlighterFor(newLanguage)
+        lineStates.clear()
+        lineStates.add(HlState.NORMAL)
     }
 
     // ---------------------------------------------------------------- insertion
@@ -141,7 +226,10 @@ class EditorSession(
         undoRedo.record(edit, coalesce = coalesceNext && text.length == 1)
         dirty = true
         coalesceNext = text.length == 1
-        invalidateFrom(document.positionAt(edit.offset).line)
+        invalidateFrom(
+            document.positionAt(edit.offset).line,
+            full = text.indexOf('\n') >= 0 || text.indexOf('\r') >= 0
+        )
     }
 
     fun insertTab() = insertText(indentUnit)
@@ -220,7 +308,8 @@ class EditorSession(
     private fun singleBackspace() {
         val offset = document.offsetAt(caret)
         if (offset == 0) return
-        val start = if (caret.column == 0 && caret.line > 0) {
+        val joinsLines = caret.column == 0 && caret.line > 0
+        val start = if (joinsLines) {
             offset - document.lineTerminatorLength(caret.line - 1)
         } else {
             offset - 1 - (if (Character.isLowSurrogate(content[offset - 1])) 1 else 0)
@@ -230,14 +319,15 @@ class EditorSession(
         dirty = true
         coalesceNext = true
         collapseTo(document.positionAt(start))
-        invalidateFrom(document.positionAt(start).line)
+        invalidateFrom(document.positionAt(start).line, full = joinsLines)
     }
 
     private fun deleteForwardSingle() {
         val offset = document.offsetAt(caret)
         if (offset >= document.length) return
         val lineLen = lineLength(caret.line)
-        val end = if (caret.column >= lineLen) {
+        val joinsLines = caret.column >= lineLen
+        val end = if (joinsLines) {
             offset + document.lineTerminatorLength(caret.line)
         } else {
             offset + 1 + (if (Character.isHighSurrogate(content[offset])) 1 else 0)
@@ -247,7 +337,7 @@ class EditorSession(
         dirty = true
         coalesceNext = false
         collapseTo(document.positionAt(offset))
-        invalidateFrom(caret.line)
+        invalidateFrom(caret.line, full = joinsLines)
     }
 
     private fun deleteForwardAll() {
@@ -496,18 +586,34 @@ class EditorSession(
             base = wordAt(base.caret) ?: return
             selections[selections.size - 1] = base
         }
-        val needle = document.substring(document.offsetAt(base.start), document.offsetAt(base.end))
+        val baseStart = document.offsetAt(base.start)
+        val baseEnd = document.offsetAt(base.end)
+        val needle = document.substring(baseStart, baseEnd)
         if (needle.isEmpty()) return
-        val from = document.offsetAt(base.end)
-        val index = content.indexOf(needle, from)
-        if (index < 0) return
-        val occurrence = Selection(
-            document.positionAt(index),
-            document.positionAt(index + needle.length)
-        )
-        if (selections.any { document.offsetAt(it.start) == index }) return
-        selections.add(occurrence)
-        setSelections(selections)
+        val text = content
+        // Search forward from the end of the current base, then wrap once to the
+        // start so the last occurrence links back to the first. Advance by one
+        // character (not by needle length) so overlapping matches are reachable.
+        var index = text.indexOf(needle, baseEnd)
+        if (index < 0) index = text.indexOf(needle, 0)
+        while (index >= 0) {
+            val end = index + needle.length
+            val overlapsExisting = selections.any { sel ->
+                val s = document.offsetAt(sel.start)
+                val e = document.offsetAt(sel.end)
+                index < e && end > s
+            }
+            if (!overlapsExisting) {
+                val occurrence = Selection(
+                    document.positionAt(index),
+                    document.positionAt(end)
+                )
+                selections.add(occurrence)
+                setSelections(selections)
+                return
+            }
+            index = text.indexOf(needle, index + 1)
+        }
     }
 
     /** Selects the word under the caret (used by double-tap). */
@@ -639,7 +745,8 @@ class EditorSession(
             caret.line > 0 -> TextPosition(caret.line - 1, lineLength(caret.line - 1))
             else -> return
         }
-        collapseTo(next)
+        setSingle(Selection.collapsed(next))
+        desiredColumn = next.column
     }
 
     fun moveRight() {
@@ -653,19 +760,26 @@ class EditorSession(
             caret.line < document.lineCount - 1 -> TextPosition(caret.line + 1, 0)
             else -> return
         }
-        collapseTo(next)
+        setSingle(Selection.collapsed(next))
+        desiredColumn = next.column
     }
 
     fun moveUp() {
         if (caret.line == 0) return
         val line = caret.line - 1
-        collapseTo(TextPosition(line, caret.column.coerceAtMost(lineLength(line))))
+        val col = desiredColumn.coerceAtMost(lineLength(line))
+        val d = desiredColumn
+        setSingle(Selection.collapsed(TextPosition(line, col)))
+        desiredColumn = d
     }
 
     fun moveDown() {
         if (caret.line >= document.lineCount - 1) return
         val line = caret.line + 1
-        collapseTo(TextPosition(line, caret.column.coerceAtMost(lineLength(line))))
+        val col = desiredColumn.coerceAtMost(lineLength(line))
+        val d = desiredColumn
+        setSingle(Selection.collapsed(TextPosition(line, col)))
+        desiredColumn = d
     }
 
     fun moveToColumn(column: Int) {
@@ -681,6 +795,131 @@ class EditorSession(
         setSingle(Selection(anchor, caret))
     }
 
+    fun selectAll() {
+        setSingle(Selection(TextPosition.Zero, document.positionAt(document.length)))
+    }
+
+    fun moveToDocumentStart() = collapseTo(TextPosition.Zero)
+
+    fun moveToDocumentEnd() = collapseTo(document.positionAt(document.length))
+
+    /** Moves the caret by [pages] screenfuls, clamped to the document. */
+    fun movePage(pages: Int, pageLines: Int) {
+        val target = (caret.line + pages * pageLines.coerceAtLeast(1))
+            .coerceIn(0, document.lineCount - 1)
+        collapseTo(TextPosition(target, caret.column.coerceAtMost(lineLength(target))))
+    }
+
+    // ---------------------------------------------------------------- clipboard
+
+    /** The text covered by the primary selection ("" when collapsed). */
+    fun selectedText(): String {
+        val sel = selection
+        if (sel.isCollapsed) return ""
+        return document.substring(document.offsetAt(sel.start), document.offsetAt(sel.end))
+    }
+
+    /**
+     * Replaces the primary selection with [text] (used for paste). Records one
+     * undo step and leaves the caret after the inserted text.
+     */
+    fun paste(text: String) {
+        if (text.isEmpty()) return
+        coalesceNext = false
+        val edit = replaceSelection(text) ?: return
+        undoRedo.record(edit)
+        dirty = true
+        invalidateFrom(
+            document.positionAt(edit.offset).line,
+            full = text.indexOf('\n') >= 0 || text.indexOf('\r') >= 0
+        )
+    }
+
+    /** Deletes every selection's range in one undo step (used for clipboard cut). */
+    fun deleteSelection() {
+        val nonCollapsed = selections.filter { !it.isCollapsed }
+        if (nonCollapsed.isEmpty()) return
+        coalesceNext = false
+        val ordered = nonCollapsed.sortedByDescending { document.offsetAt(it.start) }
+        val edits = ArrayList<TextEdit>()
+        val newSels = ArrayList<Selection>()
+        for (sel in ordered) {
+            val s = document.offsetAt(sel.start)
+            val e = document.offsetAt(sel.end)
+            val removed = document.delete(s, e)
+            edits.add(TextEdit.Delete(s, removed))
+            newSels.add(Selection.collapsed(document.positionAt(s)))
+        }
+        if (edits.isEmpty()) return
+        undoRedo.record(TextEdit.Group(edits))
+        dirty = true
+        setSelections(newSels)
+        invalidateFrom(newSels.minOf { it.caret.line })
+    }
+
+    // ---------------------------------------------------------------- snippets / indent
+
+    /**
+     * Inserts [body] at the caret, placing the caret [caretOffset] code units
+     * into the inserted text (the snippet placeholder).
+     */
+    fun insertSnippet(body: String, caretOffset: Int) {
+        coalesceNext = false
+        val edit = replaceSelection(body) ?: return
+        undoRedo.record(edit)
+        dirty = true
+        val safeOffset = caretOffset.coerceIn(0, body.length)
+        collapseTo(document.positionAt(edit.offset + safeOffset))
+        invalidateFrom(document.positionAt(edit.offset).line, full = body.indexOf('\n') >= 0)
+    }
+
+    /**
+     * Converts indentation of the whole document (or the selection) as one undo
+     * step. Returns the number of lines changed.
+     */
+    fun convertIndents(useTabs: Boolean, tabWidth: Int, selectionOnly: Boolean): Int {
+        coalesceNext = false
+        val first = if (selectionOnly) selection.start.line else 0
+        val last = if (selectionOnly) selection.end.line else document.lineCount - 1
+        if (first > last) return 0
+        val edits = ArrayList<TextEdit>()
+        var changed = 0
+        for (line in last downTo first) {
+            val text = document.lineAt(line)
+            val converted = IndentConverter.convertLine(text, useTabs, tabWidth)
+            if (converted != null) {
+                val lineStart = document.lineStartOffset(line)
+                val removed = document.delete(lineStart, lineStart + text.length)
+                edits.add(TextEdit.Delete(lineStart, removed))
+                edits.add(document.insert(lineStart, converted))
+                changed++
+            }
+        }
+        if (edits.isEmpty()) return 0
+        undoRedo.record(TextEdit.Group(edits))
+        dirty = true
+        invalidateFrom(first)
+        return changed
+    }
+
+    /** Replaces the whole buffer (used by "reopen with encoding") without history. */
+    fun reloadText(text: String) {
+        document.setText(text)
+        undoRedo.clear()
+        coalesceNext = false
+        selections.clear()
+        selections.add(Selection.Zero)
+        lineStates.clear()
+        lineStates.add(HlState.NORMAL)
+        wordIndexCache = null
+        wordIndexVersion = -1
+        maxLineLengthVersion = -1
+        maxLineLine = -1
+        lengthDirtyAll = true
+        dirty = false
+        savedVersion = document.version
+    }
+
     // ---------------------------------------------------------------- internals
 
     private fun setSingle(selection: Selection) {
@@ -694,7 +933,10 @@ class EditorSession(
         selections.addAll(sorted.ifEmpty { listOf(Selection.Zero) })
     }
 
-    private fun collapseTo(position: TextPosition) = setSingle(Selection.collapsed(position))
+    private fun collapseTo(position: TextPosition) {
+        setSingle(Selection.collapsed(position))
+        desiredColumn = position.column
+    }
 
     private fun lineStartOffsetOrEnd(line: Int): Int {
         val start = document.lineStartOffset(line)
@@ -716,7 +958,8 @@ class EditorSession(
         return lineStates[line]
     }
 
-    private fun invalidateFrom(line: Int) {
+    private fun invalidateFrom(line: Int, full: Boolean = true) {
+        if (full) touchAllLines() else touchLines(line)
         val keep = line + 1
         while (lineStates.size > keep) lineStates.removeAt(lineStates.size - 1)
     }
@@ -725,5 +968,11 @@ class EditorSession(
         private val OPEN_TO_CLOSE = mapOf('(' to ')', '[' to ']', '{' to '}')
         private val QUOTES = setOf('"', '\'', '`')
         private val CLOSE_CHARS = setOf(')', ']', '}')
+
+        /** Below this size a max-line scan is cheap enough to always run fully. */
+        const val FULL_SCAN_LIMIT = 1 shl 20
+
+        /** Documents larger than this skip the O(n) word index to keep typing snappy. */
+        const val WORD_INDEX_LIMIT = 1 shl 22
     }
 }
