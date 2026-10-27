@@ -2,6 +2,7 @@ package com.codeeditor.ui.editor
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -110,6 +111,7 @@ fun EditorSurface(
     val gutterDigits = maxOf(3, state.lineCount.toString().length)
     val gutterWidth = with(density) { (gutterDigits * charWidth + 20.dp.toPx()).toDp() }
     val lineHeightDp = with(density) { lineHeight.toDp() }
+    val gutterWidthPx = with(density) { gutterWidth.toPx() }
     // Width of the widest line (plus padding). The whole code column is given this
     // fixed width and lives inside a single horizontal scroller, so horizontal
     // scrolling works regardless of which line happens to be on screen.
@@ -174,6 +176,31 @@ fun EditorSurface(
                 modifier = Modifier
                     .width(listWidth)
                     .fillMaxHeight()
+                    .pointerInput(state.contentVersion, charWidth, lineHeight) {
+                        var moved = false
+                        detectDragGesturesAfterLongPress(
+                            onDragStart = { offset ->
+                                moved = false
+                                focusRequester.requestFocus()
+                                val line = (listState.firstVisibleItemIndex + (offset.y / lineHeight).toInt())
+                                    .coerceIn(0, (state.lineCount - 1).coerceAtLeast(0))
+                                val col = ((offset.x + hScroll.value - gutterWidthPx - textPadding) / charWidth)
+                                    .roundToInt().coerceAtLeast(0)
+                                onAction(EditorAction.BeginSelection(line, col))
+                            },
+                            onDrag = { change, _ ->
+                                moved = true
+                                val line = (listState.firstVisibleItemIndex + (change.position.y / lineHeight).toInt())
+                                    .coerceIn(0, (state.lineCount - 1).coerceAtLeast(0))
+                                val col = ((change.position.x + hScroll.value - gutterWidthPx - textPadding) / charWidth)
+                                    .roundToInt().coerceAtLeast(0)
+                                onAction(EditorAction.ExtendSelection(line, col))
+                            },
+                            onDragEnd = {
+                                if (!moved) onAction(EditorAction.SelectWord)
+                            }
+                        )
+                    }
             ) {
                 items(count = state.lineCount, key = { it }) { index ->
                     EditorLineRow(
@@ -293,9 +320,6 @@ private fun EditorLineRow(
                         detectTapGestures(
                             onTap = { offset -> onTapLine(index, offset.x) },
                             onDoubleTap = { offset -> onDoubleTapLine(index, offset.x) },
-                            onLongPress = { offset ->
-                                onLongPressLine(index, offset.x)
-                            }
                         )
                     }
             ) {

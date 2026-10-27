@@ -622,6 +622,20 @@ class EditorSession(
         setSingle(word)
     }
 
+    /** Starts a new selection anchored at [line]/[column] (used by long-press). */
+    fun beginSelection(line: Int, column: Int) {
+        val clampedLine = line.coerceIn(0, document.lineCount - 1)
+        val pos = TextPosition(clampedLine, column.coerceIn(0, lineLength(clampedLine)))
+        setSingle(Selection(pos, pos))
+    }
+
+    /** Extends the current selection's caret to [line]/[column], keeping the anchor. */
+    fun extendSelectionTo(line: Int, column: Int) {
+        val clampedLine = line.coerceIn(0, document.lineCount - 1)
+        val pos = TextPosition(clampedLine, column.coerceIn(0, lineLength(clampedLine)))
+        setSingle(Selection(selection.anchor, pos))
+    }
+
     private fun wordAt(position: TextPosition): Selection? {
         val line = document.lineAt(position.line)
         if (line.isEmpty()) return null

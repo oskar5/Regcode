@@ -23,6 +23,8 @@ sealed interface EditorAction {
     data object MoveLineDown : EditorAction
     data object AddNextOccurrence : EditorAction
     data object SelectWord : EditorAction
+    data class BeginSelection(val line: Int, val column: Int) : EditorAction
+    data class ExtendSelection(val line: Int, val column: Int) : EditorAction
     data object SelectAll : EditorAction
     /** Deletes the current selection (clipboard cut copies first in the UI). */
     data object DeleteSelection : EditorAction

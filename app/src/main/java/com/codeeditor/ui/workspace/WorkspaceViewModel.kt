@@ -43,6 +43,8 @@ import com.codeeditor.ui.editor.EditorAction.OpenReplace
 import com.codeeditor.ui.editor.EditorAction.ReplaceAll
 import com.codeeditor.ui.editor.EditorAction.ReplaceCurrent
 import com.codeeditor.ui.editor.EditorAction.SelectWord
+import com.codeeditor.ui.editor.EditorAction.BeginSelection
+import com.codeeditor.ui.editor.EditorAction.ExtendSelection
 import com.codeeditor.ui.editor.EditorAction.SelectAll
 import com.codeeditor.ui.editor.EditorAction.DeleteSelection
 import com.codeeditor.ui.editor.EditorAction.Save
@@ -166,6 +168,8 @@ class WorkspaceViewModel @Inject constructor(
             MoveLineDown -> { dismissCompletion(); session.moveLineDown() }
             AddNextOccurrence -> { dismissCompletion(); session.addNextOccurrence() }
             SelectWord -> { dismissCompletion(); session.selectWordAtCaret() }
+            is BeginSelection -> { dismissCompletion(); session.beginSelection(action.line, action.column) }
+            is ExtendSelection -> { dismissCompletion(); session.extendSelectionTo(action.line, action.column) }
             SelectAll -> { dismissCompletion(); session.selectAll() }
             DeleteSelection -> { dismissCompletion(); session.deleteSelection() }
             is Paste -> { dismissCompletion(); session.paste(action.text); autoComplete = false }
