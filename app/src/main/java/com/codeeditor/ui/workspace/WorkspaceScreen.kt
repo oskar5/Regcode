@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.NoteAdd
 import androidx.compose.material.icons.filled.Redo
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Undo
 import androidx.compose.material.icons.filled.MoreVert
@@ -171,6 +172,12 @@ fun WorkspaceScreen(
                             if (!text.isNullOrEmpty()) onAction(EditorAction.Paste(text))
                         }) {
                             Icon(Icons.Filled.ContentPaste, contentDescription = stringResource(R.string.menu_paste))
+                        }
+                        IconButton(onClick = { onAction(EditorAction.SelectAll) }) {
+                            Icon(Icons.Filled.SelectAll, contentDescription = stringResource(R.string.menu_select_all))
+                        }
+                        IconButton(onClick = { onAction(EditorAction.SelectAll) }) {
+                            Icon(Icons.Filled.SelectAll, contentDescription = stringResource(R.string.menu_select_all))
                         }
                         IconButton(onClick = { onAction(EditorAction.OpenFind) }) {
                             Icon(Icons.Filled.Search, contentDescription = stringResource(R.string.find_hint))

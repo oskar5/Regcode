@@ -42,4 +42,5 @@
     <string name="menu_copy">Копіювати</string>
     <string name="menu_cut">Вирізати</string>
     <string name="menu_paste">Вставити</string>
+    <string name="menu_select_all">Виділити все</string>
 </resources>
